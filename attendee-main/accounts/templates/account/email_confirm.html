@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% load account %}
+
+{% block body_content %}
+<div class="container">
+    <div class="row min-vh-100 align-items-center justify-content-center">
+        <div class="col-sm-12 col-md-8 col-lg-6 col-xl-5">
+            <div class="card shadow-lg border-0 rounded-lg">
+                <div class="card-body p-5">
+                    <!-- Title -->
+                    <div class="text-center mb-4">
+                        <h4 class="text-dark mb-4">
+                            {% if confirmation %}
+                                Confirm Email Address
+                            {% else %}
+                                Invalid Confirmation Link
+                            {% endif %}
+                        </h4>
+                    </div>
+
+                    {% if confirmation %}
+                        {% user_display confirmation.email_address.user as user_display %}
+                        {% if can_confirm %}
+                            <!-- Confirmation Message -->
+                            <div class="text-center mb-4">
+                                <div class="mb-4">
+                                    <i class="bi bi-envelope-check text-primary" style="font-size: 3rem;"></i>
+                                </div>
+                                <p class="mb-4">
+                                    Please confirm that <strong>{{ confirmation.email_address.email }}</strong> is the email address for user <strong>{{ user_display }}</strong>.
+                                </p>
+                            </div>
+
+                            <!-- Confirm Form -->
+                            <form method="post" action="{% url 'account_confirm_email' confirmation.key %}">
+                                {% csrf_token %}
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary btn-lg">Confirm Email</button>
+                                </div>
+                            </form>
+                        {% else %}
+                            <!-- Already Confirmed Message -->
+                            <div class="text-center">
+                                <div class="mb-4">
+                                    <i class="bi bi-exclamation-circle text-warning" style="font-size: 3rem;"></i>
+                                </div>
+                                <p class="mb-4">
+                                    This email address is already confirmed by a different account.
+                                </p>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <!-- Invalid Link Message -->
+                        <div class="text-center">
+                            <div class="mb-4">
+                                <i class="bi bi-x-circle text-danger" style="font-size: 3rem;"></i>
+                            </div>
+                            <p class="mb-4">
+                                This email confirmation link has expired or is invalid.
+                            </p>
+                            <div class="d-grid">
+                                <a href="{% url 'account_reset_password' %}" class="btn btn-primary btn-lg">
+                                    Request New Confirmation
+                                </a>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Return to Login -->
+                    <div class="text-center mt-4">
+                        <p class="small mb-0">
+                            <a href="{% url 'account_login' %}" class="text-primary">Return to Login</a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

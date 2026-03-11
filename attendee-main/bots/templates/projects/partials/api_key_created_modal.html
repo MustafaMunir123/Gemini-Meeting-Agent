@@ -1,0 +1,58 @@
+<div class="modal-header">
+    <h5 class="modal-title">API Key Created</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <div class="alert alert-warning">
+        <strong>Important:</strong> This API key will only be shown once. Please copy it now and store it securely.
+    </div>
+    <div class="mb-3">
+        <label class="form-label">API Key Name</label>
+        <input type="text" class="form-control" value="{{ name }}" readonly tabindex="-1" style="pointer-events: none;">
+    </div>
+    <div class="mb-3">
+        <label class="form-label">API Key</label>
+        <div class="input-group">
+            <input type="text" class="form-control" value="{{ api_key }}" id="apiKeyValue" readonly tabindex="-1" style="pointer-events: none;">
+            <button class="btn btn-outline-secondary" type="button" onclick="copyApiKey()">
+                <i class="bi bi-clipboard"></i>
+            </button>
+        </div>
+    </div>
+</div>
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+</div>
+
+<script>
+function copyApiKey() {
+    const apiKeyInput = document.getElementById('apiKeyValue');
+    navigator.clipboard.writeText(apiKeyInput.value);
+    
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-check"></i>';
+    setTimeout(() => {
+        button.innerHTML = originalHtml;
+    }, 1000);
+}
+
+var modal = new bootstrap.Modal(document.getElementById('apiKeyResultModal'));
+modal.show();
+
+// Add event listener to refresh table when modal is hidden
+document.getElementById('apiKeyResultModal').addEventListener('hidden.bs.modal', function () {
+    htmx.ajax('GET', 
+             window.location.pathname, 
+             {
+                 target: '#apiKeysTable',
+                 select: '#apiKeysTable',
+                 swap: 'outerHTML'
+             });
+});
+
+var createModal = bootstrap.Modal.getInstance(document.getElementById('createApiKeyModal'));
+if (createModal) {
+    createModal.hide();
+}
+</script> 

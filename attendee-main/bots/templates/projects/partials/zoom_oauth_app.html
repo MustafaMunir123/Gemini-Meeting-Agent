@@ -1,0 +1,168 @@
+<div id="zoom-oauth-app-partial">
+    <div class="card mt-4" id="zoom-oauth-app-container">
+        <div class="card-header">
+            <h5 class="mb-0">Zoom OAuth App Credentials</h5>
+            <!-- Simplify UI for now, no need to show the object id since we are assuming one zoom oauth app per project -->
+            {% comment %}
+                {% if zoom_oauth_app %}
+                <code class="me-2">{{ zoom_oauth_app.object_id }}</code>
+                {% endif %}
+            {% endcomment %}
+        </div>
+        <div class="card-body">
+            <div id="credentials-status">
+                {% if zoom_oauth_app %}                
+                    <p>Client ID: {{ zoom_oauth_app.client_id }}</p>
+                    {% if zoom_oauth_app.zoom_oauth_connections.count > 0 %}
+                    <p>Connected Zoom accounts: {{ zoom_oauth_app.zoom_oauth_connections.count }}</p>
+                    {% endif %}
+                    <button class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#zoomOAuthAppModal">
+                        Edit OAuth App
+                    </button>
+                    {% if zoom_oauth_app.webhook_secret %}
+                        <button class="btn btn-outline-secondary zoom-oauth-copy-component" 
+                            data-role="copy" 
+                            data-value="{{ request.scheme }}://{{ request.get_host }}/external_webhooks/zoom/oauth_apps/{{ zoom_oauth_app.object_id }}"
+                            title="Copy webhook URL to clipboard">
+                            <i class="bi bi-clipboard me-1"></i>
+                            Copy Webhook URL
+                        </button>
+                    {% endif %}
+                    {% if zoom_oauth_app %}
+                        <form style="display: inline;" 
+                            hx-post="{% url 'projects:delete-zoom-oauth-app' project.object_id %}"
+                            hx-target="#zoom-oauth-app-partial"
+                            hx-select="#zoom-oauth-app-partial"
+                            hx-swap="outerHTML"
+                            hx-confirm="Are you sure you want to delete this Zoom OAuth App?">
+                            {% csrf_token %}
+                            <button 
+                            type="submit" class="btn btn-outline-danger ms-2"
+                            {% if zoom_oauth_app.zoom_oauth_connections.count > 0 %}
+                            disabled
+                            {% endif %}
+                            >
+                                Delete OAuth App
+                            </button>
+                        </form>
+                    {% endif %}
+                {% else %}
+                    <p>Add OAuth App needed to launch Zoom Bots.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#zoomOAuthAppModal">
+                        Add OAuth App
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="zoomOAuthAppModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">{% if zoom_oauth_app %}Edit{% else %}Add{% endif %} Zoom OAuth App</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="zoom-oauth-error" class="alert alert-danger d-none" role="alert"></div>
+                    <form id="zoomOAuthAppForm" autocomplete="off"
+                        hx-post="{% url 'projects:create-zoom-oauth-app' project.object_id %}"
+                        hx-target="#zoom-oauth-app-partial"
+                        hx-select="#zoom-oauth-app-partial"
+                        hx-swap="outerHTML"
+                        hx-on::before-request="bootstrap.Modal.getOrCreateInstance(document.getElementById('zoomOAuthAppModal')).hide()"
+                        hx-on::after-request="
+                        if (event.detail.xhr.status >= 400) {
+                            event.detail.shouldSwap = false;
+                            const m = document.getElementById('zoomOAuthAppModal');
+                            const box = m.querySelector('#zoom-oauth-error');
+                            box.textContent = event.detail.xhr.responseText || 'Something went wrong';
+                            box.classList.remove('d-none');
+                            bootstrap.Modal.getOrCreateInstance(m).show();
+                        }"
+                    >
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label for="client_id" class="form-label">Client ID</label>
+                            <input type="text"
+                                class="form-control" 
+                                id="client_id" 
+                                name="client_id" 
+                                required
+                                {% if zoom_oauth_app %}disabled{% endif %}
+                                value="{{ zoom_oauth_app.client_id|default:'' }}"
+                                placeholder="Enter your Zoom OAuth Client ID">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="client_secret" class="form-label">Client Secret</label>
+                            <input type="text"
+                                class="form-control" 
+                                id="client_secret" 
+                                name="client_secret" 
+                                {% if not zoom_oauth_app %}required{% endif %}
+                                style="-webkit-text-security: disc; text-security: disc;"
+                                placeholder="Enter your Zoom OAuth Client Secret">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="webhook_secret" class="form-label">Webhook Secret (optional)</label>
+                            <input type="text"
+                                class="form-control" 
+                                id="webhook_secret" 
+                                name="webhook_secret" 
+                                style="-webkit-text-security: disc; text-security: disc;"
+                                placeholder="Enter your Zoom Webhook Secret">
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary">Save OAuth App</button>
+                            <button type="button" 
+                                    class="btn btn-secondary ms-2"
+                                    data-bs-dismiss="modal">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function clearzoomOAuthAppForm() {
+            const form = document.getElementById('zoomOAuthAppForm');
+            if (form) {
+                form.reset();
+            }
+            bootstrap.Modal.getInstance(document.getElementById('zoomOAuthAppModal'))?.hide();
+        }
+
+        // Clear form when modal is hidden (handles Cancel button and close button)
+        document.getElementById('zoomOAuthAppModal').addEventListener('hidden.bs.modal', function () {
+            clearzoomOAuthAppForm();
+        });
+
+        // Handle copy to clipboard with visual feedback
+        document.addEventListener('click', function(event) {
+            const component = event.target.closest('.zoom-oauth-copy-component');
+            if (!component) return;
+            
+            if (event.target.closest('[data-role="copy"]')) {
+                const button = event.target.closest('button');
+                const icon = button.querySelector('i');
+                const valueToCopy = button.getAttribute('data-value');
+                
+                // Copy value to clipboard
+                navigator.clipboard.writeText(valueToCopy).then(function() {
+                    // Show success indication by changing icon
+                    icon.className = 'bi bi-check';
+                    setTimeout(() => {
+                        icon.className = 'bi bi-clipboard';
+                    }, 1000);
+                });
+            }
+        });
+    </script>
+</div>

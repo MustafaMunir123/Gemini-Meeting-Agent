@@ -1,0 +1,95 @@
+# Use this when Docker cannot mount the project directory (e.g. Mac "operation not permitted").
+# No volume mounts — containers use the code baked into the image. Your .env is loaded via env_file.
+# Code changes require: docker compose -f dev.docker-compose.yaml build && docker compose -f dev-no-mounts.docker-compose.yaml up --build
+
+services:
+  attendee-worker-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    networks:
+      - attendee_network
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_URL=redis://redis:6379/5
+      - DJANGO_SETTINGS_MODULE=attendee.settings.development
+      - ENABLE_CHROME_SANDBOX=false
+    command: "celery -A attendee worker -l INFO"
+
+  attendee-scheduler-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    networks:
+      - attendee_network
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_URL=redis://redis:6379/5
+      - DJANGO_SETTINGS_MODULE=attendee.settings.development
+    command: "python manage.py run_scheduler"
+    entrypoint: []
+
+  attendee-app-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    networks:
+      - attendee_network
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_URL=redis://redis:6379/5
+      - DJANGO_SETTINGS_MODULE=attendee.settings.development
+    command: python manage.py runserver 0.0.0.0:8000
+    entrypoint: []
+
+  attendee-webpage-streamer-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    networks:
+      - attendee_network
+    ports:
+      - "8001:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=attendee.settings.development
+      - ENABLE_CHROME_SANDBOX=true
+    command: "python bots/webpage_streamer/run_webpage_streamer.py"
+    security_opt:
+      - seccomp=./bots/web_bot_adapter/chrome_seccomp.json
+    profiles:
+      - webpage-streamer
+
+  postgres:
+    image: postgres:15.3-alpine
+    environment:
+      POSTGRES_DB: attendee_development
+      POSTGRES_USER: attendee_development_user
+      POSTGRES_PASSWORD: attendee_development_user
+      PGDATA: /data/postgres
+    volumes:
+      - postgres:/data/postgres
+    networks:
+      - attendee_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - attendee_network
+    restart: unless-stopped
+    volumes:
+      - redis:/data/redis
+
+networks:
+  attendee_network:
+    driver: bridge
+
+volumes:
+  postgres:
+  redis:

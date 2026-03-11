@@ -1,0 +1,84 @@
+{
+  "subdomain": "attendee",
+  "customDomain": "docs.attendee.dev",
+  "guides": [
+    {
+      "name": "Guides",
+      "sidebar": [
+        {
+          "path": "docs/basics.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/webhooks.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/transcription.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/participant_events.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/scheduled_bots.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/signed_in_bots.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/voice_agents.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/realtime_audio.md",
+          "type": "page"
+        },
+        {
+          "path": "docs/calendar_integration.md",
+          "type": "page"
+        },
+        {
+          "name": "Zoom",
+          "type": "folder",
+          "defaultOpen": true,
+          "children": [
+            {
+              "path": "docs/zoom_app_review.md",
+              "type": "page"
+            },
+            {
+              "path": "docs/zoom_oauth.md",
+              "type": "page"
+            },
+            {
+              "path": "docs/zoom_rtms.md",
+              "type": "page"
+            }
+          ]
+        },
+        {
+          "path": "docs/faq.md",
+          "type": "page"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "name": "API Reference",
+      "path": "docs/openapi.yml"
+    }
+  ],
+  "siteConfig": {
+    "logo": {
+      "darkMode": "https://app.attendee.dev/static/images/logo_with_text.svg",
+      "lightMode": "https://app.attendee.dev/static/images/logo_with_text.svg"
+    },
+    "footer": ""
+  },
+  "publishOnMerge": true
+}

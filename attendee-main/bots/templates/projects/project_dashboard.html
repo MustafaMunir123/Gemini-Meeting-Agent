@@ -1,0 +1,112 @@
+{% extends 'projects/sidebar.html' %}
+
+{% block content %}
+    <div class="container mt-4">
+        <div class="card bg-info-subtle text-dark">
+            <div class="card-body">
+                <h5 class="card-title">Hi {{ request.user.email }}! 👋</h5>
+                <p class="card-text">Welcome to Attendee - the open source meeting bot API. You have 5 hours of free credits to get started.</p>
+                <p class="card-text mb-0">
+                    If you're building something that needs meeting bots, we'd love to chat on our <a href="https://join.slack.com/t/attendee-community/shared_invite/zt-3l43ns8cl-G8YnMccWVTugMlloUtSf9g">Slack</a>. And please ⭐ us on <a href="https://github.com/noah-duncan/attendee" target="_blank" rel="noopener noreferrer">Github</a> if you find us useful.
+
+                </p>
+            </div>
+        </div>
+        <div">
+            <div class="card-body">
+                <h4 class="mt-4">Follow these steps to get started</h4>
+                <ol class="list-group list-group-flush">
+                    <!-- Step 1: Test the API by creating a bot -->
+                    <li class="list-group-item pt-4 pb-4 fs-5">
+                        <a href="#step1-content" data-bs-toggle="collapse" role="button" aria-expanded="{% if not quick_start.has_ended_bots %}true{% else %}false{% endif %}" class="text-decoration-none text-dark d-flex justify-content-between align-items-center">
+                            <span>1. Create a bot in the dashboard
+                            {% if quick_start.has_ended_bots %}
+                            <span class="text-success ms-2"><i class="bi bi-check-circle-fill"></i></span>
+                            {% endif %}
+                            </span>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
+                        <div id="step1-content" class="collapse {% if not quick_start.has_ended_bots %}show{% endif %}">
+                            <div class="mt-2">
+                                <a href="{% url 'projects:project-bots' project.object_id %}?open_create_modal=true" class="btn btn-sm btn-primary">
+                                    Create a bot
+                                </a>
+                            </div>
+                        </div>
+                    </li>
+
+                    <!-- Step 2: API Key -->
+                    <li class="list-group-item pt-4 pb-4 fs-5">
+                        <a href="#step2-content" data-bs-toggle="collapse" role="button" aria-expanded="{% if not quick_start.has_api_keys %}true{% else %}false{% endif %}" class="text-decoration-none text-dark d-flex justify-content-between align-items-center">
+                            <span>2. Create an API key
+                            {% if quick_start.has_api_keys %}
+                            <span class="text-success ms-2"><i class="bi bi-check-circle-fill"></i></span>
+                            {% endif %}
+                            </span>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
+                        <div id="step2-content" class="collapse {% if not quick_start.has_api_keys %}show{% endif %}">
+                            <div class="mt-2">
+                                <a href="{% url 'projects:project-api-keys' project.object_id %}" class="btn btn-sm btn-primary">
+                                    Go to API Keys
+                                </a>
+                            </div>
+                        </div>
+                    </li>
+
+                    <!-- Step 3: Call API -->
+                    <li class="list-group-item pt-4 pb-4 fs-5">
+                        <a href="#step3-content" data-bs-toggle="collapse" role="button" aria-expanded="{% if not quick_start.has_created_bots_via_api %}true{% else %}false{% endif %}" class="text-decoration-none text-dark d-flex justify-content-between align-items-center">
+                            <span>3. Call the API
+                            {% if quick_start.has_created_bots_via_api %}
+                            <span class="text-success ms-2"><i class="bi bi-check-circle-fill"></i></span>
+                            {% endif %}
+                            </span>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
+                        <div id="step3-content" class="collapse {% if not quick_start.has_created_bots_via_api %}show{% endif %}">
+                            <div class="mt-2">
+                                <small>Create bot</small>
+                                <pre class="bg-light p-1 m-1 rounded">
+<code class="small">curl -X POST \
+{{ request.scheme }}://{{ request.get_host }}/api/v1/bots \
+-H 'Authorization: Token &lt;YOUR_API_KEY&gt;' \
+-H 'Content-Type: application/json' \
+-d '{"meeting_url": "https://us05web.zoom.us/j/xxxxxxx?pwd=xxxxxx", "bot_name": "My Bot"}'</code>
+                                </pre>
+                            </div>
+                            <div class="mt-2">
+                                <small>Retrieve transcript</small>
+                                <pre class="bg-light p-1 m-1 rounded">
+<code class="small">curl -X GET \
+{{ request.scheme }}://{{ request.get_host }}/api/v1/bots/&lt;BOT_ID&gt/transcript \
+-H 'Authorization: Token &lt;YOUR_API_KEY&gt;' \
+-H 'Content-Type: application/json'</code>
+                                </pre>
+                            </div>
+                        </div>
+                    </li>
+
+                    <!-- Step 4: Credentials -->
+                    <li class="list-group-item pt-4 pb-4 fs-5">
+                        <a href="#step4-content" data-bs-toggle="collapse" role="button" aria-expanded="{% if not quick_start.has_credentials %}true{% else %}false{% endif %}" class="text-decoration-none text-dark d-flex justify-content-between align-items-center">
+                            <span>4. Add credentials
+                            {% if quick_start.has_credentials %}
+                            <span class="text-success ms-2"><i class="bi bi-check-circle-fill"></i></span>
+                            {% endif %}
+                            </span>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
+                        <div id="step4-content" class="collapse {% if not quick_start.has_credentials %}show{% endif %}">
+                            <div class="mt-2">
+                                <a href="{% url 'projects:project-credentials' project.object_id %}" class="btn btn-sm btn-primary">
+                                    Go to Credentials
+                                </a>
+                            </div>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,209 @@
+{% load bot_filters %}
+
+{% if recordings %}
+    {% for recording in recordings %}
+        <div class="recording-item">
+            {% if recording.state == RecordingStates.COMPLETE or recording.state == RecordingStates.IN_PROGRESS or recording.state == RecordingStates.PAUSED %}
+                <div class="recording-container">
+                    
+                    <div class="transcript-column">
+                        {% if recording.transcriptions|length > 1 %}
+                            <div class="transcription-selector-wrapper mb-3">
+                                <select class="form-select form-select-sm transcription-selector" style="max-width: 300px;" onchange="switchTranscription(this)">
+                                    {% for transcription in recording.transcriptions %}
+                                        <option value="{{ forloop.counter0 }}">
+                                            {{ transcription.label }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        {% endif %}
+                        {% for transcription in recording.transcriptions %}
+                            <div class="transcription-content" data-transcription-index="{{ forloop.counter0 }}" {% if not forloop.first %}style="display: none;"{% endif %}>
+                                {% include 'projects/partials/project_bot_recording_transcription.html' with transcription=transcription %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                                                    
+                    {% if recording.recording_type != RecordingTypes.NO_RECORDING %}
+                        <div class="video-column">
+                            {% if recording.state == RecordingStates.COMPLETE %}
+                                <video preload="auto" width="100%" controls id="recording-video">
+                                    <source src="{{ recording.url }}">
+                                    Your browser does not support the video tag.
+                                </video>
+                                {% include 'projects/partials/project_bot_recording_speaker_timeline.html' with speaker_timeline=recording.speaker_timeline %}
+                            {% else %}
+                                <div class="d-flex align-items-center justify-content-center bg-light border rounded" style="height: 300px;">
+                                    <div class="text-center">
+                                        <span class="visually-hidden">Recording...</span>
+                                        <p class="text-muted mb-0">
+                                            {% if recording.state == RecordingStates.IN_PROGRESS %}
+                                                Recording in progress...
+                                            {% elif recording.state == RecordingStates.PAUSED %}
+                                                Recording paused...
+                                            {% endif %}
+                                        </p>
+                                        <small class="text-muted">Media will be available when the recording is finished.</small>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% elif recording.state == RecordingStates.FAILED %}
+                <div class="alert alert-danger">
+                    The recording failed.
+                </div>
+            {% elif recording.state == RecordingStates.NOT_STARTED %}
+                {% if bot.state == BotStates.FATAL_ERROR or bot.state == BotStates.ENDED %}
+                    <div class="alert alert-info">
+                        The recording is unavailable.
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        The recording has not started yet. Refresh the page to see the latest updates.
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    {% endfor %}
+{% else %}
+<div class="alert alert-info">No recordings available.</div>
+{% endif %}
+<script>
+    function switchTranscription(selectElement) {
+        const selectedIndex = selectElement.value;
+        const container = selectElement.closest('.recording-container');
+        const transcriptionContents = container.querySelectorAll('.transcription-content');
+        
+        transcriptionContents.forEach(content => {
+            if (content.dataset.transcriptionIndex === selectedIndex) {
+                content.style.display = 'block';
+            } else {
+                content.style.display = 'none';
+            }
+        });
+    }
+
+    function seekVideo(element, timestamp_ms) {
+        const container = element.closest('.recording-container');
+        const video = container.querySelector('video');
+        if (video) {
+            video.currentTime = timestamp_ms / 1000.0;
+            video.play();
+        }
+    }
+
+    // Speaker timeline initialization (position bars and wire up interactions once video duration is known)
+    document.querySelectorAll('.speaker-timeline-wrapper').forEach(function(wrapper) {
+        var recordingItem = wrapper.closest('.recording-item');
+        var video = recordingItem ? recordingItem.querySelector('video') : null;
+        if (!video) return;
+
+        var tracksCol = wrapper.querySelector('.speaker-timeline-tracks');
+        var playhead = wrapper.querySelector('.speaker-timeline-playhead');
+        if (!tracksCol) return;
+
+        function initTimeline(durationMs) {
+            // Position bars based on video duration
+            tracksCol.querySelectorAll('.speaker-timeline-bar').forEach(function(bar) {
+                var startMs = parseFloat(bar.dataset.startMs);
+                var endMs = bar.dataset.endMs != null ? parseFloat(bar.dataset.endMs) : durationMs;
+                var startPct = Math.max(0, (startMs / durationMs) * 100);
+                var widthPct = Math.max(0, Math.min(100 - startPct, ((endMs - startMs) / durationMs) * 100));
+                bar.style.left = startPct + '%';
+                bar.style.width = widthPct + '%';
+            });
+
+            // Click anywhere on the tracks area to seek
+            tracksCol.addEventListener('click', function(e) {
+                var rect = tracksCol.getBoundingClientRect();
+                var pct = (e.clientX - rect.left) / rect.width;
+                video.currentTime = (pct * durationMs) / 1000;
+                video.play();
+            });
+
+            // Update playhead position on video timeupdate
+            video.addEventListener('timeupdate', function() {
+                var pct = (video.currentTime * 1000) / durationMs;
+                playhead.style.left = (pct * 100) + '%';
+            });
+        }
+
+        if (video.readyState >= 1) {
+            initTimeline(video.duration * 1000);
+        } else {
+            video.addEventListener('loadedmetadata', function() {
+                initTimeline(video.duration * 1000);
+            });
+        }
+    });
+
+    // Add highlighting functionality
+    document.querySelectorAll('video').forEach(video => {
+        video.addEventListener('timeupdate', function() {
+            const container = this.closest('.recording-container');
+            // Only query visible transcription content
+            const visibleTranscription = container.querySelector('.transcription-content:not([style*="display: none"])') || container;
+            const words = visibleTranscription.querySelectorAll('.word, .word-space');
+            let lastHighlightedUtteranceId = null;
+            
+            // Find utterance bounds
+            const utteranceBounds = {};
+            words.forEach(word => {
+                const utteranceId = word.dataset.utteranceId;
+                if (!utteranceBounds[utteranceId]) {
+                    utteranceBounds[utteranceId] = {
+                        start: Infinity,
+                        end: -Infinity
+                    };
+                }
+                utteranceBounds[utteranceId].start = Math.min(utteranceBounds[utteranceId].start, parseFloat(word.dataset.start) / 1000.0);
+                utteranceBounds[utteranceId].end = Math.max(utteranceBounds[utteranceId].end, parseFloat(word.dataset.end) / 1000.0);
+            });
+
+            // Find current utterance
+            for (const [utteranceId, utterance] of Object.entries(utteranceBounds)) {
+                if (this.currentTime >= utterance.start && this.currentTime <= utterance.end) {
+                    lastHighlightedUtteranceId = utteranceId;
+                    break;
+                }
+            }
+            
+            // Update highlighting
+            let firstWordAfterStart = null;
+            words.forEach(word => {
+                const start = parseFloat(word.dataset.start) / 1000.0;
+                if (this.currentTime <= start && firstWordAfterStart == null) {
+                    firstWordAfterStart = word;
+                }
+                if (this.currentTime > start && word.dataset.utteranceId === lastHighlightedUtteranceId) {
+                    word.classList.add('highlighted');
+                } else {
+                    word.classList.remove('highlighted');
+                }
+            });
+            firstWordAfterStart = firstWordAfterStart || words[words.length - 1];
+
+            // Auto-scroll to first word of highlighted utterance
+            if (firstWordAfterStart) {
+                const firstWord = firstWordAfterStart;
+                const transcriptColumn = container.querySelector('.transcript-column');
+                const wordRect = firstWord.getBoundingClientRect();
+                const containerRect = transcriptColumn.getBoundingClientRect();
+
+                if (wordRect.top < containerRect.top || wordRect.bottom > containerRect.bottom) {
+                    firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+
+                // Bold the timestamp of the first word's utterance
+                const utteranceTimestamp = firstWord.closest('.utterance-item').querySelector('.utterance-timestamp');
+                document.querySelectorAll('.utterance-timestamp').forEach(timestamp => {
+                    timestamp.classList.remove('bold');
+                });
+                utteranceTimestamp.classList.add('bold');
+            }
+        });
+    });
+</script>
