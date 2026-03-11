@@ -1,0 +1,133 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f0f12;
+  color: #e4e4e7;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.app-header {
+  margin-bottom: 1.5rem;
+}
+
+.app-header h1 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.app-header .subtitle {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 0.9rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+}
+
+.btn-join {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-join:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-leave {
+  background: #dc2626;
+  color: white;
+}
+
+.btn-leave:hover {
+  background: #b91c1c;
+}
+
+.btn-ptt {
+  background: #22c55e;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  user-select: none;
+}
+
+.btn-ptt:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.btn-ptt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ptt.ptt-active {
+  background: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.5);
+}
+
+.error {
+  color: #f87171;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.status {
+  font-size: 0.85rem;
+  color: #a1a1aa;
+  margin-bottom: 1rem;
+}
+
+.status-connected {
+  color: #22c55e;
+}
+
+.status-connecting {
+  color: #eab308;
+}
+
+.video-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  min-height: 320px;
+  background: #18181b;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.video-container video {
+  border-radius: 8px;
+  background: #27272a;
+  max-width: 100%;
+}
+
+.ptt-hint {
+  font-size: 0.8rem;
+  color: #71717a;
+  margin-top: 0.5rem;
+}
