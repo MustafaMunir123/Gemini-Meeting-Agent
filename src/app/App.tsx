@@ -22,6 +22,9 @@ export default function App({ jwt }: { jwt: string | null }) {
   const [attendeeVoiceWsUrl, setAttendeeVoiceWsUrl] = useState('')
   const [attendeeLaunching, setAttendeeLaunching] = useState(false)
   const [attendeeBot, setAttendeeBot] = useState<{ id: string; state: string } | null>(null)
+  const [minimalBotLaunching, setMinimalBotLaunching] = useState(false)
+  const [minimalBotLaunched, setMinimalBotLaunched] = useState(false)
+  const [minimalBotStopping, setMinimalBotStopping] = useState(false)
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null)
   const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null)
   const zoomClientRef = useRef<ZoomClient | null>(null)
@@ -154,6 +157,50 @@ export default function App({ jwt }: { jwt: string | null }) {
     }
   }, [attendeeMeetingUrl, attendeeVoiceWsUrl])
 
+  const launchMinimalBot = useCallback(async () => {
+    const url = attendeeMeetingUrl.trim()
+    if (!url) {
+      setError('Enter a Zoom meeting URL')
+      return
+    }
+    setError(null)
+    setMinimalBotLaunching(true)
+    setMinimalBotLaunched(false)
+    try {
+      const voiceWs = attendeeVoiceWsUrl.trim()
+      const res = await fetch('/api/launch-zoom-bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meeting_url: url,
+          voice_ws_url: voiceWs || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || res.statusText)
+      setMinimalBotLaunched(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to launch minimal bot')
+    } finally {
+      setMinimalBotLaunching(false)
+    }
+  }, [attendeeMeetingUrl, attendeeVoiceWsUrl])
+
+  const stopMinimalBot = useCallback(async () => {
+    setMinimalBotStopping(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/stop-zoom-bot', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || res.statusText)
+      setMinimalBotLaunched(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Stop failed')
+    } finally {
+      setMinimalBotStopping(false)
+    }
+  }, [])
+
   if (jwt === null) {
     return (
       <div className="app">
@@ -231,6 +278,36 @@ export default function App({ jwt }: { jwt: string | null }) {
         {attendeeBot && (
           <div className="status" style={{ marginTop: '1rem' }}>
             Bot {attendeeBot.id} — state: {attendeeBot.state}. Check Attendee dashboard or the meeting.
+          </div>
+        )}
+        <hr style={{ margin: '1.5rem 0', borderColor: '#3f3f46' }} />
+        <p style={{ fontSize: '0.9rem', color: '#a1a1aa', marginBottom: '0.5rem' }}>
+          <strong>Or run the minimal Zoom bot</strong> (no Attendee, no API key — uses ZOOM_CLIENT_ID/SECRET from this app):
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-join"
+            onClick={launchMinimalBot}
+            disabled={minimalBotLaunching}
+          >
+            {minimalBotLaunching ? 'Launching…' : 'Launch minimal bot'}
+          </button>
+          {minimalBotLaunched && (
+            <button
+              type="button"
+              className="btn"
+              onClick={stopMinimalBot}
+              disabled={minimalBotStopping}
+              style={{ background: '#3f3f46', color: '#e4e4e7' }}
+            >
+              {minimalBotStopping ? 'Stopping…' : 'Leave meeting'}
+            </button>
+          )}
+        </div>
+        {minimalBotLaunched && (
+          <div className="status" style={{ marginTop: '0.5rem' }}>
+            Minimal bot is joining. It uses the meeting URL and Voice WebSocket URL above. Check server logs and the meeting.
           </div>
         )}
       </div>

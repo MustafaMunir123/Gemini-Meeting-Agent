@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+function isLocalAttendee(base: string): boolean {
+  const u = base?.replace(/\/$/, '') ?? ''
+  return u === 'http://localhost:8000' || u.startsWith('http://127.0.0.1:8000')
+}
+
 export async function POST(request: NextRequest) {
   const base = process.env.ATTENDEE_API_BASE_URL
-  const token = process.env.ATTENDEE_API_KEY
-  if (!base || !token) {
+  const token = process.env.ATTENDEE_API_KEY ?? ''
+  if (!base) {
     return NextResponse.json(
-      { error: 'Missing ATTENDEE_API_BASE_URL or ATTENDEE_API_KEY' },
+      { error: 'Missing ATTENDEE_API_BASE_URL' },
+      { status: 500 }
+    )
+  }
+  // When using local Attendee with LOCAL_DEV_SKIP_API_KEY=1, no API key is required.
+  if (!token && !isLocalAttendee(base)) {
+    return NextResponse.json(
+      { error: 'Missing ATTENDEE_API_KEY (required for non-local Attendee)' },
       { status: 500 }
     )
   }
@@ -37,13 +49,14 @@ export async function POST(request: NextRequest) {
     payload.websocket_settings = {
       audio: { url: wsUrl, sample_rate: 16000 },
     }
+    // Voice-only: no recording file, so no recording prompt (listen-only mode).
+    payload.recording_settings = { format: 'none' }
   }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Token ${token}`
   const res = await fetch(`${base}/api/v1/bots`, {
     method: 'POST',
-    headers: {
-      Authorization: `Token ${token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload),
   })
   const data = await res.json().catch(() => ({}))
