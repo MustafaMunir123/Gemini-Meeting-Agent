@@ -23,6 +23,7 @@ export default function App({ jwt }: { jwt: string | null }) {
   const [attendeeLaunching, setAttendeeLaunching] = useState(false)
   const [attendeeBot, setAttendeeBot] = useState<{ id: string; state: string } | null>(null)
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null)
+  const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null)
   const zoomClientRef = useRef<ZoomClient | null>(null)
   const geminiClientRef = useRef<GeminiLiveVoiceClient | null>(null)
   const micCaptureRef = useRef<MicCapture | null>(null)
@@ -108,12 +109,16 @@ export default function App({ jwt }: { jwt: string | null }) {
     }
   }, [disconnectGemini])
 
-  // Drive OAuth is handled entirely in this project (not Attendee)
+  // Drive and Jira status
   useEffect(() => {
     fetch('/api/drive/status')
       .then((r) => r.json())
       .then((d) => setDriveConnected(d.connected === true))
       .catch(() => setDriveConnected(false))
+    fetch('/api/jira/status')
+      .then((r) => r.json())
+      .then((d) => setJiraConfigured(d.configured === true))
+      .catch(() => setJiraConfigured(false))
     const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
     if (params.get('drive') === 'connected') {
       setDriveConnected(true)
@@ -201,9 +206,6 @@ export default function App({ jwt }: { jwt: string | null }) {
                 marginTop: 4,
               }}
             />
-            <span style={{ marginTop: 4 }}>
-              Run <code style={{ background: '#27272a', padding: '0.1rem 0.3rem', borderRadius: 4 }}>npm run voice-ws</code>, then <code style={{ background: '#27272a', padding: '0.1rem 0.3rem', borderRadius: 4 }}>ngrok http 3001</code>. Paste the ngrok URL as <strong>wss://</strong>… (e.g. wss://abc123.ngrok-free.app). Leave empty to launch a bot without voice.
-            </span>
           </label>
         </div>
         <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
@@ -216,6 +218,15 @@ export default function App({ jwt }: { jwt: string | null }) {
               {' '}(one-time). Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and DRIVE_FOLDER_ID in .env.
             </>
           )}
+        </p>
+        <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
+          <strong>Jira (read-only):</strong>{' '}
+          {jiraConfigured === true ? (
+            <span style={{ color: '#86efac' }}>Jira connected</span>
+          ) : (
+            <>Not configured. Set JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_KEY in .env.</>
+          )}
+          {' '}Ask in the meeting to search tickets (e.g. &quot;check Jira for onboarding&quot;).
         </p>
         {attendeeBot && (
           <div className="status" style={{ marginTop: '1rem' }}>

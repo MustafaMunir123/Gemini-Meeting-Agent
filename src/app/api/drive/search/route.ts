@@ -89,8 +89,9 @@ Respond in JSON only, with exactly these keys (no markdown, no extra text):
 - "link": The best matching document link (https://drive.google.com/...) or empty string if nothing matches.
 - "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
 
+  const model = process.env.DRIVE_SEARCH_GEMINI_MODEL || 'gemini-2.5-flash'
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

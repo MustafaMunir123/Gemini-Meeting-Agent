@@ -16,6 +16,8 @@ const PORT = Number(process.env.VOICE_WS_PORT) || 3001
 const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY
 const driveSearchBaseUrl = process.env.DRIVE_SEARCH_API_URL || 'http://localhost:3000'
 const driveSearchSecret = process.env.DRIVE_SEARCH_SECRET || ''
+const jiraSearchBaseUrl = process.env.JIRA_SEARCH_API_URL || process.env.DRIVE_SEARCH_API_URL || 'http://localhost:3000'
+const jiraSearchSecret = process.env.JIRA_SEARCH_SECRET || ''
 const attendeeBase = process.env.ATTENDEE_API_BASE_URL || ''
 const attendeeToken = process.env.ATTENDEE_API_KEY || ''
 
@@ -43,7 +45,27 @@ const searchDriveTool = {
   ],
 }
 
+const searchJiraTool = {
+  functionDeclarations: [
+    {
+      name: 'search_jira',
+      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Read-only: only fetches and matches tickets.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The search question or topic (e.g. "onboarding bugs", "tickets about payment", "issues assigned to me")',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  ],
+}
+
 async function callDriveSearch(query) {
+  console.log('[TOOL] callDriveSearch called, query:', query)
   const headers = { 'Content-Type': 'application/json' }
   if (driveSearchSecret) headers['x-drive-search-secret'] = driveSearchSecret
   const res = await fetch(`${driveSearchBaseUrl}/api/drive/search`, {
@@ -52,6 +74,22 @@ async function callDriveSearch(query) {
     body: JSON.stringify({ query }),
   })
   const data = await res.json().catch(() => ({}))
+  console.log('[TOOL] callDriveSearch response status:', res.status, 'body keys:', data ? Object.keys(data) : [])
+  if (!res.ok) throw new Error(data.error || res.statusText)
+  return data
+}
+
+async function callJiraSearch(query) {
+  console.log('[TOOL] callJiraSearch called, query:', query)
+  const headers = { 'Content-Type': 'application/json' }
+  if (jiraSearchSecret) headers['x-jira-search-secret'] = jiraSearchSecret
+  const res = await fetch(`${jiraSearchBaseUrl}/api/jira/search`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query }),
+  })
+  const data = await res.json().catch(() => ({}))
+  console.log('[TOOL] callJiraSearch response status:', res.status, 'body keys:', data ? Object.keys(data) : [])
   if (!res.ok) throw new Error(data.error || res.statusText)
   return data
 }
@@ -94,42 +132,94 @@ wss.on('connection', async (attendeeWs) => {
       model: 'gemini-2.5-flash-native-audio-preview-12-2025',
       config: {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: 'You are a helpful voice assistant in a Zoom meeting. Keep responses concise and natural. When someone asks to check Drive, find documents about something, or anything like "do we have anything in drive about X", use the search_drive tool with their question. After you get the result, say the short answer out loud and mention the link if one was found (e.g. "I found something relevant: [brief summary]. Here\'s the link: [link]."). The tool may also post the link and details to the meeting chat when available.',
-        tools: [searchDriveTool],
+        systemInstruction: `You are a voice assistant in a Zoom meeting. Keep replies short.
+
+CRITICAL - Drive searches: When the user asks to check Drive, search Drive, or find documents (e.g. "check in drive for X", "anything in drive about Y"):
+1. First say ONE short phrase out loud, e.g. "Let me check in Drive", "Checking Drive for that."
+2. Then call the search_drive tool with their question.
+3. After the tool result, speak the short answer and mention the link if provided.
+
+CRITICAL - Jira searches: When the user asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y"):
+1. First say ONE short phrase out loud, e.g. "Let me check Jira", "Checking Jira for that."
+2. Then call the search_jira tool with their question.
+3. After the tool result, speak the short answer and mention the ticket link if provided.
+
+So the user hears you're working on it before the search runs.`,
+        tools: [searchDriveTool, searchJiraTool],
+        functionCallingConfig: {
+          mode: 'AUTO',
+          allowedFunctionNames: ['search_drive', 'search_jira'],
+        },
       },
       callbacks: {
         onopen: () => console.log('[Voice WS] Gemini Live connected'),
         onmessage: async (e) => {
           try {
-            const parts = e.serverContent?.modelTurn?.parts
+            // Tool calls come in e.toolCall.functionCalls (same as gemini-live reference), NOT in modelTurn.parts
+            if (e.toolCall?.functionCalls?.length) {
+              console.log('[TOOL] toolCall.functionCalls:', e.toolCall.functionCalls.length)
+              for (const fc of e.toolCall.functionCalls) {
+                console.log('[TOOL] functionCall:', fc.name, fc.id, fc.args)
+                if (fc.name === 'search_drive' && geminiSession) {
+                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                  if (!query) {
+                    console.log('[TOOL] search_drive skipped: no query in args')
+                    continue
+                  }
+                  console.log('[TOOL] Executing search_drive, query:', query)
+                  let result
+                  try {
+                    result = await callDriveSearch(query)
+                  } catch (err) {
+                    console.error('[TOOL] callDriveSearch error:', err?.message ?? err)
+                    result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{
+                      id: fc.id,
+                      name: 'search_drive',
+                      response: result,
+                    }],
+                  })
+                  console.log('[TOOL] sendToolResponse done')
+                  if (result.details && currentBotId) {
+                    await sendMeetingChat(currentBotId, result.details)
+                  }
+                } else if (fc.name === 'search_jira' && geminiSession) {
+                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                  if (!query) {
+                    console.log('[TOOL] search_jira skipped: no query in args')
+                    continue
+                  }
+                  console.log('[TOOL] Executing search_jira, query:', query)
+                  let result
+                  try {
+                    result = await callJiraSearch(query)
+                  } catch (err) {
+                    console.error('[TOOL] callJiraSearch error:', err?.message ?? err)
+                    result = { answer: 'Jira search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{
+                      id: fc.id,
+                      name: 'search_jira',
+                      response: result,
+                    }],
+                  })
+                  console.log('[TOOL] sendToolResponse done (jira)')
+                  if (result.details && currentBotId) {
+                    await sendMeetingChat(currentBotId, result.details)
+                  }
+                }
+              }
+            }
+            const sc = e?.serverContent
+            const parts = sc?.modelTurn?.parts
             if (Array.isArray(parts)) {
               for (const part of parts) {
-                if (part?.functionCall) {
-                  const { id, name, args } = part.functionCall
-                  if (name === 'search_drive' && args?.query && geminiSession) {
-                    const query = String(args.query).trim()
-                    console.log('[Voice WS] Tool search_drive:', query)
-                    let result
-                    try {
-                      result = await callDriveSearch(query)
-                    } catch (err) {
-                      result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
-                    }
-                    geminiSession.sendToolResponse({
-                      functionResponses: [{
-                        id,
-                        name: 'search_drive',
-                        response: result,
-                      }],
-                    })
-                    if (result.details && currentBotId) {
-                      await sendMeetingChat(currentBotId, result.details)
-                    }
-                  }
-                  continue
-                }
-                if (part?.inlineData?.data) {
-                  const base64 = part.inlineData.data
+                const inlineData = part?.inlineData ?? part?.inline_data
+                if (inlineData?.data) {
+                  const base64 = inlineData.data
                   attendeeWs.send(JSON.stringify({
                     trigger: 'realtime_audio.bot_output',
                     data: { chunk: base64, sample_rate: 24000 },
