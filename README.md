@@ -8,7 +8,7 @@ Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a mee
 
 1. Launch your own private instance of the app to Google Cloud in just one click. No local setup required.
 
-   [![Run on Google Cloud](https://raw.githubusercontent.com/MustafaMunir123/Gemini-Meeting-Agent/main/run-on-google-cloud.png)](https://console.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/MustafaMunir123/Gemini-Meeting-Agent&cloudshell_script=scripts/one-click-deploy.sh)
+   [![Run on Google Cloud](./run-on-google-cloud.png)](https://console.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/MustafaMunir123/Gemini-Meeting-Agent&cloudshell_script=scripts/one-click-deploy.sh)
 2. In [Cloud Run](https://console.cloud.google.com/run) → your service → **Edit & deploy** → **Variables & secrets**, add:
 
 ```
