@@ -55,7 +55,7 @@ export default function Videochat({ slug, jwt, userName = 'User', onClientReady 
       })
       onClientReady?.(client)
     } catch (err) {
-      console.error('Zoom join failed:', err)
+      console.error('Session join failed:', err)
     }
   }, [slug, jwt, userName, renderVideo, onClientReady])
 
@@ -76,7 +76,7 @@ export default function Videochat({ slug, jwt, userName = 'User', onClientReady 
       <div className="controls">
         {!inSession ? (
           <button type="button" className="btn btn-join" onClick={joinSession}>
-            Join Zoom session
+            Join session
           </button>
         ) : (
           <button type="button" className="btn btn-leave" onClick={leaveSession}>

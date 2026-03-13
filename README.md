@@ -1,11 +1,11 @@
-# Zoom + Gemini Live Voice Agent
+# Gemini Sidekick
 
-Voice agent in Zoom Video SDK sessions powered by **Gemini Live API**. Join a Zoom session, then hold **Hold to talk to agent** to speak to the AI; your Zoom mic is muted while you talk so only the agent hears you.
+Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a meeting; the bot streams audio to the agent and plays replies back. You can also join via the in-browser session and hold **Hold to talk to agent** to speak to the AI (your mic is muted while you talk so only the agent hears you).
 
 ## Prerequisites
 
 - **Node.js** 18+
-- **Zoom Video SDK** credentials (SDK Key & Secret) from [Zoom Marketplace](https://marketplace.zoom.us/)
+- **Meeting SDK** credentials (SDK Key & Secret) for your meeting provider
 - **Gemini API key** (for [Google AI Studio](https://aistudio.google.com/) or Vertex)
 
 ## Setup
@@ -27,8 +27,8 @@ Voice agent in Zoom Video SDK sessions powered by **Gemini Live API**. Join a Zo
 
    In `.env.local`:
 
-   - `ZOOM_SDK_KEY` – Zoom Video SDK key  
-   - `ZOOM_SDK_SECRET` – Zoom Video SDK secret  
+   - `ZOOM_SDK_KEY` – Meeting SDK key  
+   - `ZOOM_SDK_SECRET` – Meeting SDK secret  
    - `NEXT_PUBLIC_GEMINI_API_KEY` – Gemini API key (used in the browser)
 
 3. **Run the app**
@@ -41,20 +41,25 @@ Voice agent in Zoom Video SDK sessions powered by **Gemini Live API**. Join a Zo
 
 ## Flow
 
-1. Click **Join Zoom session** – joins the Zoom Video SDK session and connects the Gemini Live voice agent.
-2. When **Gemini: Connected** appears, click and hold **Hold to talk to agent**.
-3. While holding: your Zoom mic is muted, your voice is sent to Gemini, and the agent’s reply is played back.
-4. Release the button – Zoom mic is unmuted again.
-5. Click **Leave session** to leave Zoom and disconnect the agent.
+1. **Launch meeting bot**: Enter the meeting URL and click **Launch meeting bot**. The bot joins the meeting and connects to the voice agent (e.g. `npm run voice-ws` on port 3001).
+2. **In-browser session** (optional): Click **Join session** to join via the embedded client, then when **Gemini: Connected** appears, click and hold **Hold to talk to agent**.
+3. While holding: your mic is muted, your voice is sent to Gemini, and the agent’s reply is played back.
+4. Release the button – mic is unmuted again.
+5. Click **Leave session** (or **Leave meeting** for the launched bot) to disconnect.
+
+## Integrations
+
+- **Google Drive**: Connect to search Drive and save meeting minutes. Use **Reauthenticate** on the Drive card if you need to refresh permissions.
+- **Jira**: Set `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_KEY` in `.env` to search and create tickets from the agent.
 
 ## Project structure
 
-- `src/data/getToken.ts` – Server-only Zoom JWT generation.
+- `src/data/getToken.ts` – Server-only JWT generation for the in-browser session.
 - `src/lib/GeminiLiveVoiceClient.ts` – Gemini Live client: connect, send mic audio, receive/play response audio, PTT signals.
-- `src/lib/micCapture.ts` – Microphone capture to 16 kHz PCM for Gemini.
-- `src/app/zoom/Videochat.tsx` – Zoom client: join/leave, video render, exposes client for mute/connection.
-- `src/app/App.tsx` – Ties Zoom and Gemini: session sync (connect Gemini when Zoom connects, disconnect on leave), PTT (mute Zoom + stream mic to Gemini).
+- `scripts/voice-ws-server.mjs` – Voice WebSocket server (port 3001) used by the meeting bot.
+- `scripts/zoom-bot/` – Standalone meeting bot script (joins via URL, no in-browser client required).
+- `src/app/App.tsx` – Launch flow, integrations, and in-browser session UI.
 
 ## Session name
 
-The app uses a fixed session/topic name: `zoom-gemini-session`. To join the same “room” from another tab or device, use the same session name and a valid JWT (e.g. same Zoom app credentials).
+The in-browser session uses a fixed session/topic name. To join the same “room” from another tab or device, use the same session name and a valid JWT.

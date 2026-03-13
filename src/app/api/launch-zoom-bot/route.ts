@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const clientSecret = process.env.ZOOM_CLIENT_SECRET
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { error: 'ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required for the minimal zoom bot' },
+      { error: 'ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required for the meeting bot' },
       { status: 500 }
     )
   }

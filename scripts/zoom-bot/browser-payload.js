@@ -452,7 +452,7 @@
     const sdkKey = z.sdkKey || ''
     const meetingNumber = z.meetingNumber || ''
     const passWord = z.meetingPassword || ''
-    const userName = (initial().botName) || 'Voice Agent'
+    const userName = (initial().botName) || 'Gemini Sidekick'
     const signature = z.signature
     if (!signature || !sdkKey || !meetingNumber) {
       console.error('[Bot] Missing zoomInitialData (signature, sdkKey, meetingNumber)')

@@ -18,13 +18,11 @@ export default function App({ jwt }: { jwt: string | null }) {
   const [geminiStatus, setGeminiStatus] = useState<SessionStatus>('disconnected')
   const [error, setError] = useState<string | null>(null)
   const [isPTTActive, setIsPTTActive] = useState(false)
-  const [attendeeMeetingUrl, setAttendeeMeetingUrl] = useState('')
-  const [attendeeVoiceWsUrl, setAttendeeVoiceWsUrl] = useState('')
-  const [attendeeLaunching, setAttendeeLaunching] = useState(false)
-  const [attendeeBot, setAttendeeBot] = useState<{ id: string; state: string } | null>(null)
-  const [minimalBotLaunching, setMinimalBotLaunching] = useState(false)
-  const [minimalBotLaunched, setMinimalBotLaunched] = useState(false)
-  const [minimalBotStopping, setMinimalBotStopping] = useState(false)
+  const [meetingUrl, setMeetingUrl] = useState('')
+  const [voiceWsUrl, setVoiceWsUrl] = useState('')
+  const [botLaunching, setBotLaunching] = useState(false)
+  const [botLaunched, setBotLaunched] = useState(false)
+  const [botStopping, setBotStopping] = useState(false)
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null)
   const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null)
   const zoomClientRef = useRef<ZoomClient | null>(null)
@@ -129,45 +127,17 @@ export default function App({ jwt }: { jwt: string | null }) {
     }
   }, [])
 
-  const launchAttendeeBot = useCallback(async () => {
-    const url = attendeeMeetingUrl.trim()
+  const launchBot = useCallback(async () => {
+    const url = meetingUrl.trim()
     if (!url) {
-      setError('Enter a Zoom meeting URL')
+      setError('Enter a meeting URL')
       return
     }
     setError(null)
-    setAttendeeLaunching(true)
+    setBotLaunching(true)
+    setBotLaunched(false)
     try {
-      const res = await fetch('/api/launch-bot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          meeting_url: url,
-          bot_name: 'Gemini Voice Agent',
-          websocket_audio_url: attendeeVoiceWsUrl.trim() || undefined,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || res.statusText)
-      setAttendeeBot({ id: data.id, state: data.state })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to launch bot')
-    } finally {
-      setAttendeeLaunching(false)
-    }
-  }, [attendeeMeetingUrl, attendeeVoiceWsUrl])
-
-  const launchMinimalBot = useCallback(async () => {
-    const url = attendeeMeetingUrl.trim()
-    if (!url) {
-      setError('Enter a Zoom meeting URL')
-      return
-    }
-    setError(null)
-    setMinimalBotLaunching(true)
-    setMinimalBotLaunched(false)
-    try {
-      const voiceWs = attendeeVoiceWsUrl.trim()
+      const voiceWs = voiceWsUrl.trim()
       const res = await fetch('/api/launch-zoom-bot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -178,26 +148,26 @@ export default function App({ jwt }: { jwt: string | null }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || res.statusText)
-      setMinimalBotLaunched(true)
+      setBotLaunched(true)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to launch minimal bot')
+      setError(e instanceof Error ? e.message : 'Failed to launch meeting bot')
     } finally {
-      setMinimalBotLaunching(false)
+      setBotLaunching(false)
     }
-  }, [attendeeMeetingUrl, attendeeVoiceWsUrl])
+  }, [meetingUrl, voiceWsUrl])
 
-  const stopMinimalBot = useCallback(async () => {
-    setMinimalBotStopping(true)
+  const stopBot = useCallback(async () => {
+    setBotStopping(true)
     setError(null)
     try {
       const res = await fetch('/api/stop-zoom-bot', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || res.statusText)
-      setMinimalBotLaunched(false)
+      setBotLaunched(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Stop failed')
     } finally {
-      setMinimalBotStopping(false)
+      setBotStopping(false)
     }
   }, [])
 
@@ -205,125 +175,133 @@ export default function App({ jwt }: { jwt: string | null }) {
     return (
       <div className="app">
         <header className="app-header">
-          <h1>Zoom + Gemini (Attendee)</h1>
+          <h1>Gemini Sidekick</h1>
           <p className="subtitle">
-            Launch a bot into a Zoom meeting via Attendee. Make sure Zoom OAuth is set in Attendee (localhost:8000) and you’re in the meeting first.
+            Launch a helper agent into a meeting.
           </p>
         </header>
         {error && <div className="error">{error}</div>}
-        <div className="controls" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+        <section className="launch-section">
+          <div className="launch-row">
             <input
               type="url"
-              placeholder="https://zoom.us/j/..."
-              value={attendeeMeetingUrl}
-              onChange={(e) => setAttendeeMeetingUrl(e.target.value)}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: 8,
-                border: '1px solid #3f3f46',
-                background: '#18181b',
-                color: '#e4e4e7',
-                minWidth: 280,
-                flex: 1,
-              }}
+              placeholder="Meeting URL (e.g. https://…/j/…)"
+              value={meetingUrl}
+              onChange={(e) => setMeetingUrl(e.target.value)}
+              className="input-url"
             />
-            <button
-            type="button"
-            className="btn btn-join"
-            onClick={launchAttendeeBot}
-            disabled={attendeeLaunching}
-          >
-            {attendeeLaunching ? 'Launching…' : 'Launch bot'}
-          </button>
-          </div>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 0, fontSize: '0.85rem', color: '#a1a1aa' }}>
-            Voice WebSocket URL (optional — bot will respond to speech; must be <strong>wss://</strong>)
-            <input
-              type="text"
-              placeholder="wss://xxxx.ngrok.io"
-              value={attendeeVoiceWsUrl}
-              onChange={(e) => setAttendeeVoiceWsUrl(e.target.value)}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: 8,
-                border: '1px solid #3f3f46',
-                background: '#18181b',
-                color: '#e4e4e7',
-                marginTop: 4,
-              }}
-            />
-          </label>
-        </div>
-        <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
-          <strong>Google Drive:</strong>{' '}
-          {driveConnected === true ? (
-            <>
-              <span style={{ color: '#86efac' }}>Drive connected</span>
-              {' · '}
-              <button
-                type="button"
-                onClick={async () => {
-                  await fetch('/api/drive/disconnect', { method: 'POST' })
-                  setDriveConnected(false)
-                  window.location.href = '/api/auth/google'
-                }}
-                style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontSize: 'inherit' }}
-              >
-                Reconnect (fix 403 / meeting minutes)
-              </button>
-            </>
-          ) : (
-            <>
-              <a href="/api/auth/google" style={{ color: '#818cf8' }}>Connect Google Drive</a>
-              {' '}(one-time). Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and DRIVE_FOLDER_ID in .env.
-            </>
-          )}
-        </p>
-        <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
-          <strong>Jira:</strong>{' '}
-          {jiraConfigured === true ? (
-            <span style={{ color: '#86efac' }}>Jira configured</span>
-          ) : (
-            <>Not configured. Set JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_KEY in .env.</>
-          )}
-          {' '}Search: &quot;check Jira for X&quot;. To <strong>create</strong> issues, set JIRA_PROJECT_KEY in .env (project key from any issue, e.g. <code style={{ fontSize: '0.85em' }}>ST</code> from ST-123).
-        </p>
-        {attendeeBot && (
-          <div className="status" style={{ marginTop: '1rem' }}>
-            Bot {attendeeBot.id} — state: {attendeeBot.state}. Check Attendee dashboard or the meeting.
-          </div>
-        )}
-        <hr style={{ margin: '1.5rem 0', borderColor: '#3f3f46' }} />
-        <p style={{ fontSize: '0.9rem', color: '#a1a1aa', marginBottom: '0.5rem' }}>
-          <strong>Or run the minimal Zoom bot</strong> (no Attendee, no API key — uses ZOOM_CLIENT_ID/SECRET from this app):
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-          <button
-            type="button"
-            className="btn btn-join"
-            onClick={launchMinimalBot}
-            disabled={minimalBotLaunching}
-          >
-            {minimalBotLaunching ? 'Launching…' : 'Launch minimal bot'}
-          </button>
-          {minimalBotLaunched && (
             <button
               type="button"
-              className="btn"
-              onClick={stopMinimalBot}
-              disabled={minimalBotStopping}
-              style={{ background: '#3f3f46', color: '#e4e4e7' }}
+              className="btn btn-primary"
+              onClick={launchBot}
+              disabled={botLaunching}
             >
-              {minimalBotStopping ? 'Stopping…' : 'Leave meeting'}
+              <img src="/integrations/jira-icon.png" alt="" className="btn-icon" aria-hidden />
+              {botLaunching ? 'Launching…' : 'Launch meeting bot'}
             </button>
-          )}
-        </div>
-        {minimalBotLaunched && (
-          <div className="status" style={{ marginTop: '0.5rem' }}>
-            Minimal bot is joining. It uses the meeting URL and Voice WebSocket URL above. Check server logs and the meeting.
           </div>
-        )}
+          <div className="label-optional">
+            <input
+              type="text"
+              placeholder="wss://xxxx.ngrok.io or leave empty for local"
+              value={voiceWsUrl}
+              onChange={(e) => setVoiceWsUrl(e.target.value)}
+              className="input-url"
+            />
+          </div>
+          {botLaunched && (
+            <div className="launch-actions">
+              <span className="status status-ok">Bot is joining. Check the meeting and server logs.</span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={stopBot}
+                disabled={botStopping}
+              >
+                {botStopping ? 'Stopping…' : 'Leave meeting'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="integrations-section">
+          <h2 className="integrations-title">Integrations</h2>
+          <div className="integration-cards">
+            <div className="integration-card">
+              <div className="integration-card-header">
+                <img src="/integrations/drive-icon.png" alt="" className="integration-icon" aria-hidden />
+                <div>
+                  <h3 className="integration-name">Google Drive</h3>
+                  <span className={`integration-status ${driveConnected ? 'connected' : 'disconnected'}`}>
+                    {driveConnected === true ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+              </div>
+              <details className="tools-dropdown">
+                <summary>Tools</summary>
+                <ul className="tools-list">
+                  <li>Search Drive</li>
+                  <li>Save meeting minutes to Drive</li>
+                </ul>
+              </details>
+              <div className="integration-card-actions">
+                {driveConnected === true ? (
+                  <button
+                    type="button"
+                    className="btn btn-reauth"
+                    onClick={async () => {
+                      await fetch('/api/drive/disconnect', { method: 'POST' })
+                      setDriveConnected(false)
+                      window.location.href = '/api/auth/google'
+                    }}
+                  >
+                    Reauthenticate
+                  </button>
+                ) : (
+                  <a href="/api/auth/google" className="btn btn-connect">Connect Google Drive</a>
+                )}
+              </div>
+            </div>
+
+            <div className="integration-card">
+              <div className="integration-card-header">
+                <img src="/integrations/jira-icon.png" alt="" className="integration-icon" aria-hidden />
+                <div>
+                  <h3 className="integration-name">Jira</h3>
+                  <span className={`integration-status ${jiraConfigured ? 'connected' : 'disconnected'}`}>
+                    {jiraConfigured === true ? 'Configured' : 'Not configured'}
+                  </span>
+                </div>
+              </div>
+              <details className="tools-dropdown">
+                <summary>Tools</summary>
+                <ul className="tools-list">
+                  <li>Search tickets</li>
+                  <li>Create ticket</li>
+                </ul>
+              </details>
+              {!jiraConfigured && (
+                <p className="integration-hint">Set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_KEY in .env. Optional: JIRA_PROJECT_KEY, JIRA_BOARD_ID.</p>
+              )}
+            </div>
+
+            <div className="integration-card integration-card-coming">
+              <div className="integration-card-header">
+                <div className="integration-icon integration-icon-placeholder" aria-hidden />
+                <div>
+                  <h3 className="integration-name">More</h3>
+                  <span className="integration-status disconnected">Coming soon</span>
+                </div>
+              </div>
+              <details className="tools-dropdown">
+                <summary>Tools</summary>
+                <ul className="tools-list">
+                  <li>More integrations coming soon.</li>
+                </ul>
+              </details>
+            </div>
+          </div>
+        </section>
       </div>
     )
   }
@@ -331,9 +309,9 @@ export default function App({ jwt }: { jwt: string | null }) {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Zoom + Gemini Live Voice Agent</h1>
+        <h1>Gemini Sidekick</h1>
         <p className="subtitle">
-          Join a Zoom session, then hold the button to talk to the AI assistant.
+          Join a session, then hold the button to talk to the AI assistant.
         </p>
       </header>
       {error && <div className="error">{error}</div>}
@@ -370,7 +348,7 @@ export default function App({ jwt }: { jwt: string | null }) {
         </button>
       </div>
       <p className="ptt-hint">
-        While holding the button, your Zoom mic is muted so only the agent hears you.
+        While holding the button, your mic is muted so only the agent hears you.
       </p>
     </div>
   )

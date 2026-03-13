@@ -27,7 +27,7 @@ const meetingUrl = process.env.MEETING_URL
 const meetingNumber = process.env.ZOOM_MEETING_NUMBER
 const meetingPassword = process.env.ZOOM_MEETING_PASSWORD || ''
 const voiceWsUrl = process.env.VOICE_WS_URL || 'ws://localhost:3001'
-const botName = process.env.ZOOM_BOT_NAME || 'Voice Agent'
+const botName = process.env.ZOOM_BOT_NAME || 'Gemini Sidekick'
 
 if (!clientId || !clientSecret) {
   console.error('Set ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET (Zoom Meeting SDK app credentials).')

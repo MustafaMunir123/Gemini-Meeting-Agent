@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   }
   const payload: Record<string, unknown> = {
     meeting_url,
-    bot_name: body.bot_name?.trim() || 'Gemini Voice Agent',
+    bot_name: body.bot_name?.trim() || 'Gemini Sidekick',
   }
   const wsUrl = body.websocket_audio_url?.trim()
   if (wsUrl) {
