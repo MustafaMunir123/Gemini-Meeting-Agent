@@ -72,7 +72,9 @@ gcloud run deploy "$SERVICE_NAME" \
   --image "$DEPLOY_IMAGE" \
   --region "$REGION" \
   --platform managed \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --timeout 300 \
+  --memory 512Mi
 
 echo ""
 echo "Done. Open your service URL and set env vars in the Cloud Run console:"

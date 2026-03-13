@@ -28,8 +28,13 @@ app.prepare().then(async () => {
   const { attachVoiceWs } = await import('./scripts/voice-ws-server.mjs')
   attachVoiceWs(server, voiceWsPath)
 
-  server.listen(port, () => {
-    console.log(`> Ready on http://${hostname}:${port}`)
-    console.log(`> Voice WebSocket on ws://${hostname}:${port}${voiceWsPath}`)
+  // Cloud Run requires listening on 0.0.0.0
+  const listenHost = process.env.HOST || '0.0.0.0'
+  server.listen(port, listenHost, () => {
+    console.log(`> Ready on http://${listenHost}:${port}`)
+    console.log(`> Voice WebSocket on ws://${listenHost}:${port}${voiceWsPath}`)
   })
+}).catch((err) => {
+  console.error('Failed to start:', err)
+  process.exit(1)
 })
