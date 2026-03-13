@@ -4,7 +4,17 @@ const JIRA_BASE_URL = process.env.JIRA_BASE_URL?.replace(/\/$/, '')
 const JIRA_EMAIL = process.env.JIRA_EMAIL
 const JIRA_API_KEY = process.env.JIRA_API_KEY
 
-type JiraIssue = { key: string; summary?: string; status?: string; issuetype?: string }
+type JiraIssue = {
+  key: string
+  summary?: string
+  status?: string
+  issuetype?: string
+  labels?: string[]
+  assignee?: string
+  parentKey?: string
+  parentSummary?: string
+  parentAssignee?: string
+}
 
 function getAuthHeader(): string {
   if (!JIRA_API_KEY) throw new Error('Missing JIRA_API_KEY')
@@ -20,7 +30,7 @@ async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIss
   const params = new URLSearchParams({
     jql,
     maxResults: String(maxResults),
-    fields: 'summary,status,issuetype',
+    fields: 'summary,status,issuetype,labels,assignee,parent',
   })
   const res = await fetch(`${JIRA_BASE_URL}/rest/api/3/search/jql?${params}`, {
     method: 'GET',
@@ -33,24 +43,81 @@ async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIss
     const err = await res.text()
     throw new Error(`Jira API ${res.status}: ${err}`)
   }
-  const data = (await res.json()) as { issues?: Array<{ key: string; fields?: { summary?: string; status?: { name?: string }; issuetype?: { name?: string } } }>; values?: typeof data.issues }
-  const issues = data.issues ?? data.values ?? []
-  return issues.map((i) => ({
+  type RawIssue = {
+    key: string
+    fields?: {
+      summary?: string
+      status?: { name?: string }
+      issuetype?: { name?: string }
+      labels?: string[]
+      assignee?: { displayName?: string }
+      parent?: { key?: string; fields?: { summary?: string } }
+    }
+  }
+  const data = (await res.json()) as { issues?: RawIssue[]; values?: RawIssue[] }
+  const rawIssues = data.issues ?? data.values ?? []
+  const issues: JiraIssue[] = rawIssues.map((i) => ({
     key: i.key,
     summary: i.fields?.summary,
     status: i.fields?.status?.name,
     issuetype: i.fields?.issuetype?.name,
+    labels: Array.isArray(i.fields?.labels) ? i.fields.labels : undefined,
+    assignee: i.fields?.assignee?.displayName,
+    parentKey: i.fields?.parent?.key,
+    parentSummary: i.fields?.parent?.fields?.summary,
+    parentAssignee: undefined, // filled below if we have parent keys
   }))
+
+  // Fetch parent summary and assignee for issues that have a parent (search may not return parent.fields)
+  const parentKeys = [...new Set(issues.map((i) => i.parentKey).filter(Boolean))] as string[]
+  const parentMeta: Record<string, { summary?: string; assignee?: string }> = {}
+  for (const pkey of parentKeys) {
+    try {
+      const pres = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue/${pkey}?fields=summary,assignee`, {
+        headers: { Accept: 'application/json', Authorization: getAuthHeader() },
+      })
+      if (pres.ok) {
+        const pdata = (await pres.json()) as { fields?: { summary?: string; assignee?: { displayName?: string } } }
+        parentMeta[pkey] = {
+          summary: pdata.fields?.summary ?? issues.find((i) => i.parentKey === pkey)?.parentSummary,
+          assignee: pdata.fields?.assignee?.displayName,
+        }
+      }
+    } catch {
+      // ignore per-parent errors
+    }
+  }
+  issues.forEach((i) => {
+    if (!i.parentKey) return
+    const meta = parentMeta[i.parentKey]
+    if (meta) {
+      if (meta.summary) i.parentSummary = meta.summary
+      if (meta.assignee) i.parentAssignee = meta.assignee
+    }
+  })
+
+  return issues
 }
 
 function buildIssuesContext(issues: JiraIssue[]): string {
   const baseUrl = JIRA_BASE_URL || 'https://your-domain.atlassian.net'
   return issues
-    .map(
-      (i) =>
-        `[${i.key}] ${i.summary || '(no summary)'} | Status: ${i.status || '?'} | Type: ${i.issuetype || '?'} | Link: ${baseUrl}/browse/${i.key}`
-    )
-    .join('\n')
+    .map((i) => {
+      const lines = [
+        `key: ${i.key}`,
+        `summary: ${i.summary ?? '(no summary)'}`,
+        `type: ${i.issuetype ?? '?'}`,
+        `status: ${i.status ?? '?'}`,
+        `labels: ${i.labels?.length ? i.labels.join(', ') : '—'}`,
+        `assignee: ${i.assignee ?? 'Unassigned'}`,
+        `parentKey: ${i.parentKey ?? '—'}`,
+        `parentSummary: ${i.parentSummary ?? '—'}`,
+        `parentAssignee: ${i.parentAssignee ?? '—'}`,
+        `link: ${baseUrl}/browse/${i.key}`,
+      ]
+      return lines.join('\n')
+    })
+    .join('\n\n')
 }
 
 async function answerWithGemini(query: string, issuesContext: string): Promise<{ answer: string; link: string; details: string }> {
@@ -58,14 +125,14 @@ async function answerWithGemini(query: string, issuesContext: string): Promise<{
   if (!apiKey) throw new Error('Missing Gemini API key')
   const prompt = `You are a meeting assistant. The user asked: "${query}"
 
-Below are Jira issues (key, summary, status, type, link). Pick the best match(es) for the query.
+Below are Jira issues in KEY_NAME: KEY_VALUE format (one pair per line). Fields: key, summary, type, status, labels, assignee, parentKey, parentSummary, parentAssignee, link. Use ALL of this data.
 
 ${issuesContext || '(No issues returned.)'}
 
 Respond in JSON only, with exactly these keys (no markdown, no extra text):
 - "answer": A very short spoken reply (1-2 sentences), e.g. "I found a ticket: [brief summary]. I'll share the link in chat."
 - "link": The best matching issue link or empty string if nothing matches.
-- "details": A few lines for meeting chat (include the link and a brief summary).`
+- "details": For meeting chat, include for each matching issue ALL of: key, type, status, labels, assignee, parent (key and parent assignee when present), link, and a brief summary. Do not skip labels, assignee, or parent—use every field that was provided. No ticket description.`
 
   const model = process.env.JIRA_SEARCH_GEMINI_MODEL || process.env.DRIVE_SEARCH_GEMINI_MODEL || 'gemini-2.5-flash'
   const res = await fetch(

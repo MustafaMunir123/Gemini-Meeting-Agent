@@ -64,6 +64,25 @@ const searchJiraTool = {
   ],
 }
 
+const writeToChatTool = {
+  functionDeclarations: [
+    {
+      name: 'write_to_chat',
+      description: 'Write a message to the Zoom meeting chat so all participants can see it. Use when the user asks to write something in chat, e.g. "please write this in chat", "add this to the chat", "send this message to everyone in chat", or provides text they want posted to the meeting chat.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            description: 'The exact text to post to the meeting chat.',
+          },
+        },
+        required: ['message'],
+      },
+    },
+  ],
+}
+
 async function callDriveSearch(query) {
   console.log('[TOOL] callDriveSearch called, query:', query)
   const headers = { 'Content-Type': 'application/json' }
@@ -134,6 +153,12 @@ wss.on('connection', async (attendeeWs) => {
         responseModalities: [Modality.AUDIO],
         systemInstruction: `You are a voice assistant in a Zoom meeting. Keep replies short.
 
+CRITICAL - When to respond:
+(1) Starting a conversation: Only START responding when someone clearly invokes you by name or phrase (e.g. "Hey Gemini", "Gemini", "assistant", "bot") with or before their question. Do NOT respond to side conversations or when no one has addressed you.
+(2) During an active exchange: Once the user has invoked you and you are in a back-and-forth with them, treat their follow-up speech as still directed at you. Do NOT require them to say your name again for every message—continue responding to their follow-ups (e.g. "and also check Jira", "write that in chat", "what about last week?") until the exchange is clearly over.
+(3) Ending the exchange: Consider the exchange over and go back to waiting for your name when: they say thanks/goodbye and stop, they clearly address someone else (e.g. "John, what do you think?"), or there is a long pause and then other people are talking. Then require invocation again before responding.
+If in doubt whether new speech is for you or for others, stay silent. It is better to miss one request than to interrupt a human conversation.
+
 CRITICAL - Drive searches: When the user asks to check Drive, search Drive, or find documents (e.g. "check in drive for X", "anything in drive about Y"):
 1. First say ONE short phrase out loud, e.g. "Let me check in Drive", "Checking Drive for that."
 2. Then call the search_drive tool with their question.
@@ -145,10 +170,10 @@ CRITICAL - Jira searches: When the user asks about Jira tickets, issues, or work
 3. After the tool result, speak the short answer and mention the ticket link if provided.
 
 So the user hears you're working on it before the search runs.`,
-        tools: [searchDriveTool, searchJiraTool],
+        tools: [searchDriveTool, searchJiraTool, writeToChatTool],
         functionCallingConfig: {
           mode: 'AUTO',
-          allowedFunctionNames: ['search_drive', 'search_jira'],
+          allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat'],
         },
       },
       callbacks: {
@@ -212,6 +237,22 @@ So the user hears you're working on it before the search runs.`,
                     if (currentBotId) await sendMeetingChat(currentBotId, result.details)
                     attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                   }
+                } else if (fc.name === 'write_to_chat' && geminiSession) {
+                  const message = (fc.args?.message != null ? String(fc.args.message) : '').trim()
+                  if (!message) {
+                    console.log('[TOOL] write_to_chat skipped: no message in args')
+                    geminiSession.sendToolResponse({
+                      functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: false, error: 'No message provided' } }],
+                    })
+                    continue
+                  }
+                  console.log('[TOOL] write_to_chat:', message.slice(0, 80) + (message.length > 80 ? '...' : ''))
+                  if (currentBotId) await sendMeetingChat(currentBotId, message)
+                  attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message } }))
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
+                  })
+                  console.log('[TOOL] write_to_chat done')
                 }
               }
             }
