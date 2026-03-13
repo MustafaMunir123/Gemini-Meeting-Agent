@@ -256,9 +256,23 @@ export default function App({ jwt }: { jwt: string | null }) {
           </label>
         </div>
         <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
-          <strong>Google Drive (OAuth in this app):</strong>{' '}
+          <strong>Google Drive:</strong>{' '}
           {driveConnected === true ? (
-            <span style={{ color: '#86efac' }}>Drive connected</span>
+            <>
+              <span style={{ color: '#86efac' }}>Drive connected</span>
+              {' · '}
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch('/api/drive/disconnect', { method: 'POST' })
+                  setDriveConnected(false)
+                  window.location.href = '/api/auth/google'
+                }}
+                style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontSize: 'inherit' }}
+              >
+                Reconnect (fix 403 / meeting minutes)
+              </button>
+            </>
           ) : (
             <>
               <a href="/api/auth/google" style={{ color: '#818cf8' }}>Connect Google Drive</a>
@@ -267,13 +281,13 @@ export default function App({ jwt }: { jwt: string | null }) {
           )}
         </p>
         <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#a1a1aa' }}>
-          <strong>Jira (read-only):</strong>{' '}
+          <strong>Jira:</strong>{' '}
           {jiraConfigured === true ? (
-            <span style={{ color: '#86efac' }}>Jira connected</span>
+            <span style={{ color: '#86efac' }}>Jira configured</span>
           ) : (
             <>Not configured. Set JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_KEY in .env.</>
           )}
-          {' '}Ask in the meeting to search tickets (e.g. &quot;check Jira for onboarding&quot;).
+          {' '}Search: &quot;check Jira for X&quot;. To <strong>create</strong> issues, set JIRA_PROJECT_KEY in .env (project key from any issue, e.g. <code style={{ fontSize: '0.85em' }}>ST</code> from ST-123).
         </p>
         {attendeeBot && (
           <div className="status" style={{ marginTop: '1rem' }}>

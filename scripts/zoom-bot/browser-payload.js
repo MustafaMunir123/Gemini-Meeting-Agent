@@ -483,10 +483,21 @@
           obfToken: z.onBehalfToken || '',
           zak: z.zakToken || '',
           success: () => console.log('[Bot] Join success'),
-          error: (err) => console.error('[Bot] Join error', err),
+          error: (err) => {
+            const msg = err && (err.message || err.reason || err.errorMessage || JSON.stringify(err))
+            console.error('[Bot] Join error', err)
+            if (window.ws && typeof window.ws.sendJson === 'function') {
+              window.ws.sendJson({ type: 'JoinError', error: msg, raw: err })
+            }
+          },
         })
       },
-      error: (err) => console.error('[Bot] Init error', err),
+      error: (err) => {
+        console.error('[Bot] Init error', err)
+        if (window.ws && typeof window.ws.sendJson === 'function') {
+          window.ws.sendJson({ type: 'JoinError', error: 'ZoomMtg.init failed: ' + (err && (err.message || err.reason || JSON.stringify(err))) })
+        }
+      },
     })
   }
 
@@ -495,17 +506,21 @@
   ZoomMtg.inMeetingServiceListener('onJoinSpeed', (data) => {
     if (!data) return
     const level = typeof data.level === 'number' ? data.level : parseInt(data.level, 10)
-    // Level 6 = in waiting room, 13 = "user start join audio" (in meeting). Set entered for both so we proceed.
-    if (level === 6 || level === 13) {
+    if (Number.isNaN(level)) return
+    // Level 5 = out of "waiting for host", 6 = in waiting room, 7+ = out of waiting room / joining. Accept 5+ so we proceed as soon as join progresses.
+    if (level >= 5) {
       userEnteredMeeting = true
       console.log('[Bot] Entered meeting (onJoinSpeed level ' + level + ')')
     }
   })
-  // Fallback: if onJoinSpeed never fires, consider in meeting after 20s so we still ask for permission.
+  // Fallback: if onJoinSpeed never fires, consider in meeting after 12s so we still ask for permission.
   window._joinStartedAt = 0
   setInterval(() => {
     if (userEnteredMeeting || !window._joinStartedAt) return
-    if (Date.now() - window._joinStartedAt > 20000) userEnteredMeeting = true
+    if (Date.now() - window._joinStartedAt > 12000) {
+      userEnteredMeeting = true
+      console.log('[Bot] Entered meeting (fallback after 12s)')
+    }
   }, 2000)
 
   ZoomMtg.inMeetingServiceListener('onMeetingStatus', (data) => {

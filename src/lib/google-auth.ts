@@ -11,6 +11,8 @@ const TOKEN_PATH = path.join(process.cwd(), '.data', 'google-tokens.json')
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive', // create folders/files in Drive (e.g. Meetings/, meeting minutes)
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
 ]

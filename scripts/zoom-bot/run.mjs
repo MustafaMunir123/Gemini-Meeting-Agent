@@ -21,8 +21,8 @@ const require = createRequire(import.meta.url)
 const dotenv = require('dotenv')
 dotenv.config()
 
-const clientId = process.env.ZOOM_CLIENT_ID
-const clientSecret = process.env.ZOOM_CLIENT_SECRET
+const clientId = (process.env.ZOOM_CLIENT_ID || '').trim()
+const clientSecret = (process.env.ZOOM_CLIENT_SECRET || '').trim()
 const meetingUrl = process.env.MEETING_URL
 const meetingNumber = process.env.ZOOM_MEETING_NUMBER
 const meetingPassword = process.env.ZOOM_MEETING_PASSWORD || ''
@@ -47,26 +47,28 @@ if (!parsedMeetingNumber) {
   process.exit(1)
 }
 
-// Zoom JWT (same as Attendee: 2h expiry, role 0 = participant)
-const iat = Math.floor(Date.now() / 1000) - 60
-const exp = iat + 2 * 60 * 60
-const signature = jwt.sign(
-  {
-    appKey: clientId,
-    sdkKey: clientId,
-    mn: String(parsedMeetingNumber),
-    role: 0,
-    iat,
-    exp,
-    tokenExp: exp,
-  },
-  clientSecret,
-  { algorithm: 'HS256' }
-)
+/** Build Zoom Meeting SDK JWT (same payload as Attendee zoom_meeting_sdk_signature). */
+function buildSignature() {
+  const iat = Math.floor(Date.now() / 1000) - 60
+  const exp = iat + 2 * 60 * 60
+  return jwt.sign(
+    {
+      appKey: clientId,
+      sdkKey: clientId,
+      mn: String(parsedMeetingNumber),
+      role: 0,
+      iat,
+      exp,
+      tokenExp: exp,
+    },
+    clientSecret,
+    { algorithm: 'HS256' }
+  )
+}
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const PORT_HTTP = 0 // pick any free port
-let bridgePort = 8765
+let bridgePort = 8765 // set when WSS binds (use 0 to avoid EADDRINUSE on relaunch)
 let httpPort = 0
 
 // ---- Local WebSocket server (browser connects here) ----
@@ -120,7 +122,9 @@ function downsample48to16(pcm16Buffer) {
   return Buffer.from(out.buffer)
 }
 
-const wss = new WebSocketServer({ port: bridgePort }, () => {
+// Use port 0 so OS assigns a free port (avoids EADDRINUSE when relaunching before previous process released 8765)
+const wss = new WebSocketServer({ port: 0 }, () => {
+  bridgePort = wss.address().port
   console.log('[Bridge] Local WS server ws://localhost:' + bridgePort)
   connectToVoiceServer()
 })
@@ -142,7 +146,12 @@ wss.on('connection', (browserWs) => {
     if (msgType === JSON_MESSAGE_TYPE && buf.length > 4) {
       try {
         const json = JSON.parse(buf.toString('utf8', 4))
-        if (json.type === 'RecordingPermissionChange' && json.change === 'granted') {
+        if (json.type === 'JoinError') {
+          console.error('[Bridge] Zoom join failed:', json.error || json)
+          if (json.raw && (json.raw.errorCode === 3712 || (json.error && String(json.error).includes('Invalid signature')))) {
+            console.error('[Bridge] 3712 = Invalid signature. Use the SAME Zoom Meeting SDK credentials (ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET) as in Attendee. Copy them from Attendee\'s env/docker into this app\'s .env. No extra spaces/newlines.')
+          }
+        } else if (json.type === 'RecordingPermissionChange' && json.change === 'granted') {
           // Match Attendee: unmute bot (Zoom gets our virtual/silent mic, so no loopback) and enable media sending.
           console.log('[Bridge] Recording permission granted; unmuting mic and enabling media sending.')
           if (currentPage) {
@@ -222,15 +231,21 @@ async function main() {
   })
   const page = await context.newPage()
 
+  // Generate signature at join time (same credentials as Attendee; must be Meeting SDK app SDK Key + Secret)
+  const signature = buildSignature()
+  // For meetings outside your app's account (Zoom requirement from March 2026), set ZOOM_ZAK_TOKEN or ZOOM_OBF_TOKEN. See https://developers.zoom.us/docs/meeting-sdk/obf-faq/
+  const zakToken = process.env.ZOOM_ZAK_TOKEN?.trim() || ''
+  const obfToken = process.env.ZOOM_OBF_TOKEN?.trim() || process.env.ZOOM_REGISTRANT_TOKEN?.trim() || ''
   const zoomInitialData = {
     signature,
     sdkKey: clientId,
     meetingNumber: parsedMeetingNumber,
     meetingPassword: parsedPassword,
     joinToken: '',
-    zakToken: '',
+    zakToken,
     appPrivilegeToken: '',
-    onBehalfToken: '',
+    onBehalfToken: obfToken,
+    registrantToken: obfToken,
   }
   const initialData = {
     websocketPort: bridgePort,
@@ -239,24 +254,38 @@ async function main() {
   }
 
   currentPage = page
-  await page.goto('http://127.0.0.1:' + httpPort + '/page.html', { waitUntil: 'networkidle' })
-  await page.evaluate(({ zoom, initial }) => {
-    window.zoomInitialData = zoom
-    window.initialData = initial
+  page.on('console', (msg) => {
+    const text = msg.text()
+    if (text.includes('Join error') || text.includes('Init error') || text.includes('Missing zoomInitialData')) {
+      console.error('[Bot page]', text)
+    }
+  })
+  // Inject credentials before page load (same as Attendee: data is there before any script runs)
+  await page.addInitScript((data) => {
+    window.zoomInitialData = data.zoom
+    window.initialData = data.initial
   }, { zoom: zoomInitialData, initial: initialData })
+  await page.goto('http://127.0.0.1:' + httpPort + '/page.html', { waitUntil: 'networkidle' })
 
   // Allow Zoom SDK preLoadWasm/prepareWebSDK to complete
   await new Promise((r) => setTimeout(r, 3000))
+  console.log('[Bot] Joining meeting', parsedMeetingNumber, '...')
   await page.evaluate(() => window.joinMeeting())
-  console.log('[Bot] Join started, waiting for meeting entry (up to 60s)...')
-  await page.waitForFunction(
-    () => window.userHasEnteredMeeting && window.userHasEnteredMeeting(),
-    { timeout: 60000 }
-  ).catch(() => {
-    console.warn('[Bot] Timeout waiting for userEnteredMeeting.')
-  })
+  console.log('[Bot] Join started, waiting for meeting entry (up to 20s)...')
+  const entered = await Promise.race([
+    page.waitForFunction(
+      () => window.userHasEnteredMeeting && window.userHasEnteredMeeting(),
+      { timeout: 20000 }
+    ).then(() => true).catch(() => false),
+    new Promise((r) => setTimeout(() => r(false), 20000)),
+  ])
+  if (!entered) {
+    console.warn('[Bot] Proceeding anyway after 20s (join may still be in progress).')
+  } else {
+    console.log('[Bot] In meeting.')
+  }
   // Match Attendee: ask for recording permission so Zoom shows the prompt; enable media only after permission granted.
-  console.log('[Bot] In meeting; asking for recording permission (user must accept in Zoom)...')
+  console.log('[Bot] Asking for recording permission (user must accept in Zoom)...')
   await page.evaluate(() => {
     if (typeof window.askForMediaCapturePermission === 'function') {
       window.askForMediaCapturePermission()

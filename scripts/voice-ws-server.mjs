@@ -68,7 +68,7 @@ const writeToChatTool = {
   functionDeclarations: [
     {
       name: 'write_to_chat',
-      description: 'Write a message to the Zoom meeting chat so all participants can see it. Use when the user asks to write something in chat, e.g. "please write this in chat", "add this to the chat", "send this message to everyone in chat", or provides text they want posted to the meeting chat.',
+      description: 'Write a message to the Zoom meeting chat so all participants can see it. Use when the user asks to: write something in chat; put a summary or meeting minutes in the chat box; post meeting notes to chat; "add this to the chat"; or provide any text to the meeting chat. You can post a structured meeting summary (summary, key points, action items) to chat—this is allowed and preferred when they ask for minutes or summary in chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -78,6 +78,72 @@ const writeToChatTool = {
           },
         },
         required: ['message'],
+      },
+    },
+  ],
+}
+
+const createMeetingMinutesTool = {
+  functionDeclarations: [
+    {
+      name: 'create_meeting_minutes',
+      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. The file name is always auto-generated: current date (YYYY-MM-DD) plus a 6-digit ID (e.g. 2025-03-10_482917.txt). Do not ask the user for a file name—the system prefixes with the current date automatically. Use only when the user asks to save/upload meeting minutes to Drive. Compose from the conversation: summary, key points, action items.',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Brief summary of the meeting or discussion (required).',
+          },
+          keyPoints: {
+            type: 'string',
+            description: 'Optional. Key discussion points, one per line or as bullet text.',
+          },
+          actionItems: {
+            type: 'string',
+            description: 'Optional. Action items or follow-ups from the meeting.',
+          },
+          additionalNotes: {
+            type: 'string',
+            description: 'Optional. Any other notes to include.',
+          },
+        },
+        required: ['summary'],
+      },
+    },
+  ],
+}
+
+const createJiraTool = {
+  functionDeclarations: [
+    {
+      name: 'create_jira',
+      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. The user can say in chat: project key (e.g. "in project ST"), board ID (e.g. "add to board 42"), parent ticket (e.g. "under ST-5"). Before calling: if the user did not give a clear title, ask for it. Do not set or ask for assignee.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: {
+            type: 'string',
+            description: 'The ticket title/summary (required).',
+          },
+          parentKey: {
+            type: 'string',
+            description: 'Optional. Parent issue key (e.g. ST-5) to create a sub-task under it. Omit to create a top-level Story.',
+          },
+          projectKey: {
+            type: 'string',
+            description: 'Optional. Jira project key (e.g. ST, PROJ) when creating a top-level Story. Use if the user says "in project X" or "project key ST".',
+          },
+          boardId: {
+            type: 'string',
+            description: 'Optional. Jira board ID (number as string, e.g. "42") to add the new issue to that board\'s latest sprint. Use if the user says "board 42" or "add to board X".',
+          },
+          description: {
+            type: 'string',
+            description: 'Optional. Detailed description for the ticket. If not provided, a short default description will be used.',
+          },
+        },
+        required: ['title'],
       },
     },
   ],
@@ -109,6 +175,45 @@ async function callJiraSearch(query) {
   })
   const data = await res.json().catch(() => ({}))
   console.log('[TOOL] callJiraSearch response status:', res.status, 'body keys:', data ? Object.keys(data) : [])
+  if (!res.ok) throw new Error(data.error || res.statusText)
+  return data
+}
+
+async function callJiraCreate(title, parentKey, description, projectKey, boardId) {
+  console.log('[TOOL] callJiraCreate called, title:', title, 'parentKey:', parentKey || '(none)', 'projectKey:', projectKey || '(env)', 'boardId:', boardId || '(env)')
+  const headers = { 'Content-Type': 'application/json' }
+  if (jiraSearchSecret) headers['x-jira-search-secret'] = jiraSearchSecret
+  const body = { title }
+  if (parentKey) body.parentKey = parentKey
+  if (description) body.description = description
+  if (projectKey) body.projectKey = projectKey
+  if (boardId) body.boardId = boardId
+  const res = await fetch(`${jiraSearchBaseUrl}/api/jira/create`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  console.log('[TOOL] callJiraCreate response status:', res.status, 'key:', data?.key)
+  if (!res.ok) throw new Error(data.error || res.statusText)
+  return data
+}
+
+async function callCreateMeetingMinutes(summary, keyPoints, actionItems, additionalNotes) {
+  console.log('[TOOL] callCreateMeetingMinutes called')
+  const headers = { 'Content-Type': 'application/json' }
+  if (driveSearchSecret) headers['x-drive-search-secret'] = driveSearchSecret
+  const body = { summary }
+  if (keyPoints) body.keyPoints = keyPoints
+  if (actionItems) body.actionItems = actionItems
+  if (additionalNotes) body.additionalNotes = additionalNotes
+  const res = await fetch(`${driveSearchBaseUrl}/api/drive/meeting-minutes`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  console.log('[TOOL] callCreateMeetingMinutes response status:', res.status, 'name:', data?.name)
   if (!res.ok) throw new Error(data.error || res.statusText)
   return data
 }
@@ -147,8 +252,9 @@ wss.on('connection', async (attendeeWs) => {
 
   try {
     const ai = new GoogleGenAI({ apiKey })
+    // Use 09-2025 for stability; 12-2025 often closes with 1008 "Operation is not implemented" (see googleapis/js-genai#1236)
     geminiSession = await ai.live.connect({
-      model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
       config: {
         responseModalities: [Modality.AUDIO],
         systemInstruction: `You are a voice assistant in a Zoom meeting. Keep replies short.
@@ -169,11 +275,21 @@ CRITICAL - Jira searches: When the user asks about Jira tickets, issues, or work
 2. Then call the search_jira tool with their question.
 3. After the tool result, speak the short answer and mention the ticket link if provided.
 
+CRITICAL - Creating Jira tickets (only here: ask for missing context): When the user asks to create a Jira ticket, story, or task:
+1. You MUST have a clear title from the user before calling create_jira. If they did not give a title (e.g. "create a Jira ticket" with no details), ask: "What should the title be?" and wait for their answer. Do not invent or guess a title.
+2. Optionally ask for a parent ticket key (e.g. "Under which ticket?") and for a short description if useful.
+3. Do NOT ask for or set assignee.
+4. Call create_jira with title (required). If the user said a project key (e.g. "in project ST") or board ID (e.g. "add to board 42") or parent ticket, pass projectKey, boardId, or parentKey. The ticket will be created as a Story with status To Do and optionally added to the given board's latest sprint.
+
+CRITICAL - Meeting summary / minutes (two options; follow what the user asked for):
+(1) Summary or minutes IN THE CHAT: If the user asks for meeting minutes in the chat, a summary in the chat box, or to put the summary in chat, use write_to_chat. Compose a structured summary (what was discussed, key points, action items) and call write_to_chat with that message. Do not refuse or say you can only upload to Drive—posting to chat is allowed.
+(2) Save minutes TO DRIVE: If the user asks to save meeting minutes to Drive, upload them to Google Drive, or put them on Drive, use create_meeting_minutes. The file name is always auto-generated (current date + 6-digit ID); do not ask the user for a file name. Say a short phrase (e.g. "Saving meeting minutes to Drive"), then call the tool. After the result, share the Drive link. The user may ask for chat first and later ask to upload to Drive—do both as requested.
+
 So the user hears you're working on it before the search runs.`,
-        tools: [searchDriveTool, searchJiraTool, writeToChatTool],
+        tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool],
         functionCallingConfig: {
           mode: 'AUTO',
-          allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat'],
+          allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira'],
         },
       },
       callbacks: {
@@ -253,6 +369,61 @@ So the user hears you're working on it before the search runs.`,
                     functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
                   })
                   console.log('[TOOL] write_to_chat done')
+                } else if (fc.name === 'create_meeting_minutes' && geminiSession) {
+                  const summary = (fc.args?.summary != null ? String(fc.args.summary) : '').trim()
+                  if (!summary) {
+                    geminiSession.sendToolResponse({
+                      functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: { success: false, error: 'Summary is required for meeting minutes.' } }],
+                    })
+                    continue
+                  }
+                  const keyPoints = (fc.args?.keyPoints != null ? String(fc.args.keyPoints) : '').trim() || undefined
+                  const actionItems = (fc.args?.actionItems != null ? String(fc.args.actionItems) : '').trim() || undefined
+                  const additionalNotes = (fc.args?.additionalNotes != null ? String(fc.args.additionalNotes) : '').trim() || undefined
+                  let result
+                  try {
+                    result = await callCreateMeetingMinutes(summary, keyPoints, actionItems, additionalNotes)
+                    result = { success: true, ...result, details: `Meeting minutes saved to Drive.\nFile: ${result.name}\nLink: ${result.link}` }
+                  } catch (err) {
+                    console.error('[TOOL] callCreateMeetingMinutes error:', err?.message ?? err)
+                    result = { success: false, error: err?.message || 'Failed to save meeting minutes to Drive.', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: result }],
+                  })
+                  if (result.details) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                  }
+                  console.log('[TOOL] create_meeting_minutes done')
+                } else if (fc.name === 'create_jira' && geminiSession) {
+                  const title = (fc.args?.title != null ? String(fc.args.title) : '').trim()
+                  if (!title) {
+                    geminiSession.sendToolResponse({
+                      functionResponses: [{ id: fc.id, name: 'create_jira', response: { success: false, error: 'Title is required. Ask the user for a title.' } }],
+                    })
+                    continue
+                  }
+                  const parentKey = (fc.args?.parentKey != null ? String(fc.args.parentKey) : '').trim() || undefined
+                  const description = (fc.args?.description != null ? String(fc.args.description) : '').trim() || undefined
+                  const projectKey = (fc.args?.projectKey != null ? String(fc.args.projectKey) : '').trim() || undefined
+                  const boardId = (fc.args?.boardId != null ? String(fc.args.boardId) : '').trim() || undefined
+                  let result
+                  try {
+                    result = await callJiraCreate(title, parentKey, description, projectKey, boardId)
+                    result = { success: true, ...result, details: `Created: ${result.key} – ${result.summary}\nStatus: ${result.status}\nLink: ${result.link}` }
+                  } catch (err) {
+                    console.error('[TOOL] callJiraCreate error:', err?.message ?? err)
+                    result = { success: false, error: err?.message || 'Failed to create Jira ticket.', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'create_jira', response: result }],
+                  })
+                  if (result.details) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                  }
+                  console.log('[TOOL] create_jira done')
                 }
               }
             }
@@ -279,7 +450,16 @@ So the user hears you're working on it before the search runs.`,
           }
         },
         onerror: (err) => console.error('[Voice WS] Gemini error:', err?.message ?? err),
-        onclose: (e) => console.log('[Voice WS] Gemini closed', e?.code, e?.reason),
+        onclose: (e) => {
+          const code = e?.code
+          const reason = e?.reason ?? ''
+          console.log('[Voice WS] Gemini closed', code, reason)
+          if (code === 1008) {
+            console.warn('[Voice WS] 1008 = policy/unsupported. Try GEMINI_LIVE_MODEL=gemini-2.5-flash-native-audio-preview-09-2025 or unset GEMINI_LIVE_MODEL, then reconnect.')
+          } else if (code === 1011) {
+            console.warn('[Voice WS] 1011 = server inference failed (Gemini backend error). Often transient—reconnect the bot (e.g. relaunch minimal bot or rejoin meeting) to retry.')
+          }
+        },
       },
     })
   } catch (err) {
@@ -312,7 +492,7 @@ So the user hears you're working on it before the search runs.`,
     if (geminiSession) {
       try {
         geminiSession.close()
-      } catch (_) {}
+      } catch (_) { }
       geminiSession = null
     }
     console.log('[Voice WS] Attendee disconnected (received', audioFromAttendeeCount, 'audio, sent', audioToAttendeeCount, ')')
