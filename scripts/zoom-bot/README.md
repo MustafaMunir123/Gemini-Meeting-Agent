@@ -9,8 +9,6 @@ Join a meeting and stream meeting audio to your voice server (e.g. port 3001). N
 3. The **browser** joins Zoom (ZoomMtg.init / ZoomMtg.join), and an **AudioNode** intercept captures the meeting playback and feeds it into a **StyleManager** (combined stream). When **enableMediaSending()** is called, **processMixedAudioTrack** sends Float32 chunks to the bridge over WebSocket (message type 3).
 4. The **bridge** converts each chunk to 16 kHz PCM, base64, and forwards `{ trigger: 'realtime_audio.mixed', data: { chunk } }` to the voice server.
 
-See [docs/ZOOM_BOT_FLOW.md](../../docs/ZOOM_BOT_FLOW.md) for the full flow.
-
 ## Usage
 
 ```bash
