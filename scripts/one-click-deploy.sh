@@ -1,31 +1,53 @@
 #!/usr/bin/env bash
+# One-click deploy: auth → project → APIs → deploy to Cloud Run.
+# Use as cloudshell_script when opening from "Run on Google Cloud" button.
+
 set -e
 
+echo "=============================================="
+echo "  Gemini Sidekick — Deploy to Cloud Run"
+echo "=============================================="
+echo ""
 
+# 1. Ensure logged in
+echo "Checking Google Cloud login..."
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
+  echo "No active account. Running: gcloud auth login"
+  gcloud auth login
+fi
+echo "  Logged in as: $(gcloud config get-value account 2>/dev/null)"
+echo ""
+
+# 2. Get project ID (prompt if not set)
+PROJECT_ID="$(gcloud config get-value project 2>/dev/null)"
+if [ -z "$PROJECT_ID" ]; then
+  echo "No project set. Your projects:"
+  gcloud projects list --format="table(projectId,name)" 2>/dev/null || true
+  echo ""
+  read -p "Enter your GCP PROJECT_ID: " PROJECT_ID
+  if [ -z "$PROJECT_ID" ]; then
+    echo "Error: PROJECT_ID is required."
+    exit 1
+  fi
+  gcloud config set project "$PROJECT_ID"
+fi
+echo "Using project: $PROJECT_ID"
+echo ""
+
+# 3. Enable required APIs
+echo "Enabling required APIs (Cloud Run, Cloud Build)..."
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com --project="$PROJECT_ID" 2>/dev/null || true
+echo "  Done."
+echo ""
+
+# 4. Deploy from Docker Hub
 DEFAULT_IMAGE="docker.io/mm2036/gemini-sidekick:latest"
 IMAGE="${GEMINI_SIDEKICK_IMAGE:-$DEFAULT_IMAGE}"
-
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-gemini-sidekick}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
-PROJECT_ID="${GCLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 
-if [ -z "$IMAGE" ]; then
-  echo "Error: No container image set."
-  echo "  Use: GEMINI_SIDEKICK_IMAGE=docker.io/USER/gemini-sidekick:latest $0"
-  echo "  Or set DEFAULT_IMAGE in this script (for a shared one-click link)."
-  exit 1
-fi
-
-if [ -z "$PROJECT_ID" ]; then
-  echo "Error: No GCP project set."
-  echo "  Run: gcloud auth login"
-  echo "       gcloud config set project YOUR_PROJECT_ID"
-  exit 1
-fi
-
-echo "Deploying Gemini Sidekick to Cloud Run..."
+echo "Deploying to Cloud Run..."
 echo "  Image:   $IMAGE"
-echo "  Project: $PROJECT_ID"
 echo "  Service: $SERVICE_NAME"
 echo "  Region:  $REGION"
 echo ""

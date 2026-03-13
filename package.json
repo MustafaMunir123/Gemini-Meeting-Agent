@@ -8,9 +8,7 @@
     "start": "NODE_ENV=production node server.js",
     "lint": "next lint",
     "voice-ws": "node scripts/voice-ws-server.mjs",
-    "zoom-bot": "node scripts/zoom-bot/run.mjs",
-    "deploy:cloudrun": "bash scripts/deploy-cloud-run.sh",
-    "publish:image": "bash scripts/publish-image.sh"
+    "zoom-bot": "node scripts/zoom-bot/run.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
