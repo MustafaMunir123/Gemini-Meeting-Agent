@@ -25,10 +25,10 @@ else
   FULL_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
 fi
 
-echo "Building and pushing: $FULL_IMAGE"
+echo "Building and pushing: $FULL_IMAGE (linux/amd64 for Cloud Run)"
 echo ""
 
-docker build -t "$FULL_IMAGE" .
+docker build --platform linux/amd64 -t "$FULL_IMAGE" .
 docker push "$FULL_IMAGE"
 
 echo ""
