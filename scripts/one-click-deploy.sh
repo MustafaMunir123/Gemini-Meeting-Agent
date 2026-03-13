@@ -40,32 +40,27 @@ gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudb
 echo "  Done."
 echo ""
 
-# 4. Deploy (Docker Hub "latest" is an Image Index; Cloud Run needs a single manifest — re-push to Artifact Registry)
-DEFAULT_IMAGE="docker.io/mm2036/gemini-sidekick:latest"
-IMAGE="${GEMINI_SIDEKICK_IMAGE:-$DEFAULT_IMAGE}"
+# 4. Build in Cloud Build and deploy (no Docker Hub pull — repo is already cloned)
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-gemini-sidekick}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
-DEPLOY_IMAGE="$IMAGE"
+REPO_NAME="gemini-sidekick"
+GAR_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/gemini-sidekick:latest"
 
-if [[ "$IMAGE" == docker.io/* ]]; then
-  REPO_NAME="gemini-sidekick"
-  GAR_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/gemini-sidekick:latest"
-  echo "Docker Hub 'latest' is a multi-arch index; copying amd64 image to Artifact Registry for Cloud Run..."
-  echo "  Pull: $IMAGE"
-  echo "  Push: $GAR_IMAGE"
-  echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
-  gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" --project="$PROJECT_ID" 2>/dev/null || \
-    gcloud artifacts repositories create "$REPO_NAME" --repository-format=docker --location="$REGION" --project="$PROJECT_ID"
-  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+echo "Building image in Cloud Build (from cloned repo, no large download)..."
+echo "  Tag: $GAR_IMAGE"
+echo ""
 
-  docker pull --platform linux/amd64 "$IMAGE"
-  docker tag "$IMAGE" "$GAR_IMAGE"
-  docker push "$GAR_IMAGE"
+gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" --project="$PROJECT_ID" 2>/dev/null || \
+  gcloud artifacts repositories create "$REPO_NAME" --repository-format=docker --location="$REGION" --project="$PROJECT_ID"
 
-  DEPLOY_IMAGE="$GAR_IMAGE"
-  echo ""
-fi
+gcloud builds submit --tag "$GAR_IMAGE" --project="$PROJECT_ID" .
+
+DEPLOY_IMAGE="$GAR_IMAGE"
+echo ""
 
 echo "Deploying to Cloud Run..."
 echo "  Image:   $DEPLOY_IMAGE"
