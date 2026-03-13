@@ -72,6 +72,11 @@ let httpPort = 0
 // ---- Local WebSocket server (browser connects here) ----
 let voiceWs = null
 const AUDIO_MESSAGE_TYPE = 3
+const JSON_MESSAGE_TYPE = 1
+/** Set in main() so bridge can call page.evaluate when recording permission is granted. */
+let currentPage = null
+/** Current browser WebSocket so we can forward agent audio from voice server to browser. */
+let currentBrowserWs = null
 
 function connectToVoiceServer() {
   voiceWs = new WebSocket(voiceWsUrl)
@@ -81,24 +86,37 @@ function connectToVoiceServer() {
     setTimeout(connectToVoiceServer, 10000)
   })
   voiceWs.on('error', (err) => console.error('[Bridge] Voice WS error', err))
+  voiceWs.on('message', (data) => {
+    if (!currentBrowserWs || currentBrowserWs.readyState !== 1) return
+    const str = typeof data === 'string' ? data : (Buffer.isBuffer(data) ? data.toString('utf8') : String(data))
+    currentBrowserWs.send(str)
+  })
 }
 
-// Float32 -> PCM 16-bit, optional downsample to 16kHz (input 48kHz)
+// Float32 [-1,1] -> PCM 16-bit (match Attendee: multiply by 32768, clamp to int16)
 function float32ToPcm16(float32) {
   const pcm16 = new Int16Array(float32.length)
   for (let i = 0; i < float32.length; i++) {
     const s = Math.max(-1, Math.min(1, float32[i]))
-    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    const v = Math.round(s * 32768)
+    pcm16[i] = Math.max(-32768, Math.min(32767, v))
   }
   return Buffer.from(pcm16.buffer)
 }
 
+// 48 kHz → 16 kHz with box-filter anti-aliasing (average 3 samples per output). Naive decimation destroys speech.
 function downsample48to16(pcm16Buffer) {
   const samples48 = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, pcm16Buffer.length / 2)
-  const rate = 48000 / 16000 // 3
-  const outLen = Math.floor(samples48.length / rate)
+  const ratio = 3
+  const outLen = Math.floor(samples48.length / ratio)
   const out = new Int16Array(outLen)
-  for (let i = 0; i < outLen; i++) out[i] = samples48[i * rate]
+  for (let i = 0; i < outLen; i++) {
+    const j = i * ratio
+    const a = samples48[j]
+    const b = j + 1 < samples48.length ? samples48[j + 1] : a
+    const c = j + 2 < samples48.length ? samples48[j + 2] : a
+    out[i] = Math.max(-32768, Math.min(32767, Math.round((a + b + c) / 3)))
+  }
   return Buffer.from(out.buffer)
 }
 
@@ -108,6 +126,11 @@ const wss = new WebSocketServer({ port: bridgePort }, () => {
 })
 wss.on('connection', (browserWs) => {
   console.log('[Bridge] Browser connected')
+  currentBrowserWs = browserWs
+  browserWs.on('close', () => {
+    if (currentBrowserWs === browserWs) currentBrowserWs = null
+    console.log('[Bridge] Browser disconnected')
+  })
   if (!voiceWs || voiceWs.readyState !== 1) connectToVoiceServer()
 
   browserWs.binaryType = 'arraybuffer'
@@ -116,6 +139,33 @@ wss.on('connection', (browserWs) => {
     const buf = Buffer.from(data)
     if (buf.length < 4) return
     const msgType = buf.readInt32LE(0)
+    if (msgType === JSON_MESSAGE_TYPE && buf.length > 4) {
+      try {
+        const json = JSON.parse(buf.toString('utf8', 4))
+        if (json.type === 'RecordingPermissionChange' && json.change === 'granted') {
+          // Match Attendee: unmute bot (Zoom gets our virtual/silent mic, so no loopback) and enable media sending.
+          console.log('[Bridge] Recording permission granted; unmuting mic and enabling media sending.')
+          if (currentPage) {
+            currentPage.evaluate(() => {
+              if (typeof window.turnOnMic === 'function') window.turnOnMic()
+              if (typeof window.ensureMicOn === 'function') window.ensureMicOn()
+            }).catch((err) => console.error('[Bridge] turnOnMic failed', err))
+            setTimeout(() => {
+              if (currentPage) {
+                currentPage.evaluate(() => {
+                  if (window.ws && typeof window.ws.enableMediaSending === 'function') {
+                    window.ws.enableMediaSending()
+                  }
+                }).catch((err) => console.error('[Bridge] enableMediaSending failed', err))
+              }
+            }, 800)
+          }
+        }
+      } catch (e) {
+        // ignore parse errors
+      }
+      return
+    }
     if (msgType === AUDIO_MESSAGE_TYPE && buf.length > 4 && voiceWs?.readyState === 1) {
       const float32 = new Float32Array(buf.buffer, buf.byteOffset + 4, (buf.length - 4) / 4)
       const pcm16 = float32ToPcm16(float32)
@@ -128,7 +178,6 @@ wss.on('connection', (browserWs) => {
       voiceWs.send(payload)
     }
   })
-  browserWs.on('close', () => console.log('[Bridge] Browser disconnected'))
 })
 
 // ---- HTTP server (serve Zoom page with COOP/COEP) ----
@@ -189,6 +238,7 @@ async function main() {
     sendMixedAudio: true,
   }
 
+  currentPage = page
   await page.goto('http://127.0.0.1:' + httpPort + '/page.html', { waitUntil: 'networkidle' })
   await page.evaluate(({ zoom, initial }) => {
     window.zoomInitialData = zoom
@@ -203,12 +253,18 @@ async function main() {
     () => window.userHasEnteredMeeting && window.userHasEnteredMeeting(),
     { timeout: 60000 }
   ).catch(() => {
-    console.warn('[Bot] Timeout waiting for userEnteredMeeting; enabling media sending anyway.')
+    console.warn('[Bot] Timeout waiting for userEnteredMeeting.')
   })
+  // Match Attendee: ask for recording permission so Zoom shows the prompt; enable media only after permission granted.
+  console.log('[Bot] In meeting; asking for recording permission (user must accept in Zoom)...')
   await page.evaluate(() => {
-    if (window.ws && typeof window.ws.enableMediaSending === 'function') window.ws.enableMediaSending()
+    if (typeof window.askForMediaCapturePermission === 'function') {
+      window.askForMediaCapturePermission()
+    } else if (window.ws && typeof window.ws.enableMediaSending === 'function') {
+      window.ws.enableMediaSending()
+    }
   })
-  console.log('[Bot] In meeting; audio streaming to voice server.')
+  console.log('[Bot] After you accept recording in Zoom, audio will stream to the voice server.')
 
-  await new Promise(() => {}) // keep process alive
+  await new Promise(() => { }) // keep process alive
 }

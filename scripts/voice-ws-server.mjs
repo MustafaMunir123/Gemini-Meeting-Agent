@@ -182,8 +182,9 @@ So the user hears you're working on it before the search runs.`,
                     }],
                   })
                   console.log('[TOOL] sendToolResponse done')
-                  if (result.details && currentBotId) {
-                    await sendMeetingChat(currentBotId, result.details)
+                  if (result.details) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                   }
                 } else if (fc.name === 'search_jira' && geminiSession) {
                   const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
@@ -207,8 +208,9 @@ So the user hears you're working on it before the search runs.`,
                     }],
                   })
                   console.log('[TOOL] sendToolResponse done (jira)')
-                  if (result.details && currentBotId) {
-                    await sendMeetingChat(currentBotId, result.details)
+                  if (result.details) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                   }
                 }
               }
