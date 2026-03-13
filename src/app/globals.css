@@ -330,3 +330,62 @@ body {
 .integration-card-coming .integration-icon-placeholder {
   background: linear-gradient(135deg, #27272a 0%, #3f3f46 100%);
 }
+
+/* Gate (login key) page when LOGIN_API_KEY is set */
+.gate-page {
+  position: fixed;
+  inset: 0;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.gate-loading {
+  color: #71717a;
+  font-size: 0.95rem;
+}
+.gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 280px;
+}
+.gate-form label {
+  font-size: 0.9rem;
+  color: #a1a1aa;
+}
+.gate-input {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #e4e4e7;
+  font-size: 1rem;
+}
+.gate-input:focus {
+  outline: none;
+  border-color: #52525b;
+}
+.gate-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #f87171;
+}
+.gate-submit {
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #3b82f6;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.gate-submit:hover:not(:disabled) {
+  background: #2563eb;
+}
+.gate-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}

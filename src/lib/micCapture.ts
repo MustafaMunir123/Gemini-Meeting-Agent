@@ -84,7 +84,7 @@ export class MicCapture {
       this.stream = null
     }
     if (this.audioContext?.state !== 'closed') {
-      this.audioContext.close().catch(() => {})
+      this.audioContext?.close().catch(() => {})
     }
     this.audioContext = null
     this.resampleBuffer = []

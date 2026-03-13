@@ -54,7 +54,8 @@ export async function loadTokens(): Promise<{ access_token: string; refresh_toke
   try {
     const data = await readFile(TOKEN_PATH, 'utf-8')
     const parsed = JSON.parse(data) as { access_token?: string; refresh_token?: string; expiry_date?: number }
-    if (parsed.access_token) return parsed
+    if (parsed.access_token)
+      return { access_token: parsed.access_token, refresh_token: parsed.refresh_token, expiry_date: parsed.expiry_date }
     return null
   } catch {
     return null

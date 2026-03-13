@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { getData } from '@/data/getToken'
 import App from './App'
+import Gate from './Gate'
 
 export default async function Page() {
   let jwt: string | null = null
@@ -9,7 +10,9 @@ export default async function Page() {
   }
   return (
     <Suspense fallback={<div style={{ padding: '2rem', color: '#a1a1aa' }}>Loading…</div>}>
-      <App jwt={jwt} />
+      <Gate>
+        <App jwt={jwt} />
+      </Gate>
     </Suspense>
   )
 }

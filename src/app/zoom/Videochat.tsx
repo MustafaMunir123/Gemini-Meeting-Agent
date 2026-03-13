@@ -31,7 +31,7 @@ export default function Videochat({ slug, jwt, userName = 'User', onClientReady 
       } else {
         const userVideo = await mediaStream.attachVideo(event.userId, VideoQuality.Video_360P)
         if (userVideo && videoContainerRef.current) {
-          videoContainerRef.current.appendChild(userVideo as HTMLVideoElement)
+          videoContainerRef.current.appendChild(userVideo as unknown as HTMLVideoElement)
         }
       }
     },

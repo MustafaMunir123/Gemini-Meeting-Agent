@@ -29,7 +29,7 @@ async function downloadAsBuffer(drive: ReturnType<typeof google.drive>, fileId: 
     { fileId, alt: 'media' },
     { responseType: 'arraybuffer' }
   )
-  return Buffer.from(res.data as ArrayBuffer)
+  return Buffer.from(res.data as unknown as ArrayBuffer)
 }
 
 async function exportGoogleDocAsText(drive: ReturnType<typeof google.drive>, fileId: string): Promise<string> {
@@ -37,7 +37,7 @@ async function exportGoogleDocAsText(drive: ReturnType<typeof google.drive>, fil
     { fileId, mimeType: 'text/plain' },
     { responseType: 'arraybuffer' }
   )
-  return Buffer.from(res.data as ArrayBuffer).toString('utf-8')
+  return Buffer.from(res.data as unknown as ArrayBuffer).toString('utf-8')
 }
 
 async function extractText(drive: ReturnType<typeof google.drive>, file: FileEntry): Promise<string | null> {

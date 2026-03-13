@@ -156,7 +156,7 @@ export class GeminiLiveVoiceClient {
     if (!this.session) return
     try {
       const blob = audio instanceof Blob ? audio : new Blob([audio])
-      this.session.sendRealtimeInput({ audio: blob })
+      this.session.sendRealtimeInput({ audio: blob } as Parameters<typeof this.session.sendRealtimeInput>[0])
     } catch (err) {
       this.callbacks.onError?.(err instanceof Error ? err.message : String(err))
     }

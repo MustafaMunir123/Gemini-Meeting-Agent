@@ -1,0 +1,33 @@
+# Dependencies (reinstalled in image)
+node_modules
+.pnp
+.pnp.js
+npm-debug.log*
+
+# Build output (rebuilt in image)
+.next
+out
+
+# Env and secrets (set via Cloud Run env vars)
+.env
+.env.*
+!.env.example
+
+# Git and IDE
+.git
+.gitignore
+.cursor
+*.md
+!README.md
+
+# Attendee (separate project)
+attendee-main
+
+# Playwright / zoom-bot browser (not needed in server image)
+playwright-report
+test-results
+
+# Misc
+.DS_Store
+*.log
+.cursorignore

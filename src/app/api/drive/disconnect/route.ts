@@ -13,9 +13,9 @@ export async function POST() {
     await unlink(TOKEN_PATH)
     return NextResponse.json({ ok: true, message: 'Drive disconnected. Connect again to re-auth with current scopes.' })
   } catch (e) {
-    if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    if ((e as unknown as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return NextResponse.json({ ok: true, message: 'Already disconnected.' })
     }
-    return NextResponse.json({ error: (e as Error)?.message ?? 'Failed to disconnect' }, { status: 500 })
+    return NextResponse.json({ error: (e instanceof Error ? e.message : 'Failed to disconnect') }, { status: 500 })
   }
 }

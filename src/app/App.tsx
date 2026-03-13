@@ -19,7 +19,6 @@ export default function App({ jwt }: { jwt: string | null }) {
   const [error, setError] = useState<string | null>(null)
   const [isPTTActive, setIsPTTActive] = useState(false)
   const [meetingUrl, setMeetingUrl] = useState('')
-  const [voiceWsUrl, setVoiceWsUrl] = useState('')
   const [botLaunching, setBotLaunching] = useState(false)
   const [botLaunched, setBotLaunched] = useState(false)
   const [botStopping, setBotStopping] = useState(false)
@@ -137,14 +136,10 @@ export default function App({ jwt }: { jwt: string | null }) {
     setBotLaunching(true)
     setBotLaunched(false)
     try {
-      const voiceWs = voiceWsUrl.trim()
       const res = await fetch('/api/launch-zoom-bot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          meeting_url: url,
-          voice_ws_url: voiceWs || undefined,
-        }),
+        body: JSON.stringify({ meeting_url: url }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || res.statusText)
@@ -154,7 +149,7 @@ export default function App({ jwt }: { jwt: string | null }) {
     } finally {
       setBotLaunching(false)
     }
-  }, [meetingUrl, voiceWsUrl])
+  }, [meetingUrl])
 
   const stopBot = useCallback(async () => {
     setBotStopping(true)
@@ -199,15 +194,6 @@ export default function App({ jwt }: { jwt: string | null }) {
               <img src="/integrations/jira-icon.png" alt="" className="btn-icon" aria-hidden />
               {botLaunching ? 'Launching…' : 'Launch meeting bot'}
             </button>
-          </div>
-          <div className="label-optional">
-            <input
-              type="text"
-              placeholder="Leave empty to use this server (e.g. ws://localhost:3000/voice-ws)"
-              value={voiceWsUrl}
-              onChange={(e) => setVoiceWsUrl(e.target.value)}
-              className="input-url"
-            />
           </div>
           {botLaunched && (
             <div className="launch-actions">

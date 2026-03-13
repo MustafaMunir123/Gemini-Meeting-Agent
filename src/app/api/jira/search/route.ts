@@ -69,7 +69,7 @@ async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIss
   }))
 
   // Fetch parent summary and assignee for issues that have a parent (search may not return parent.fields)
-  const parentKeys = [...new Set(issues.map((i) => i.parentKey).filter(Boolean))] as string[]
+  const parentKeys = Array.from(new Set(issues.map((i) => i.parentKey).filter(Boolean))) as string[]
   const parentMeta: Record<string, { summary?: string; assignee?: string }> = {}
   for (const pkey of parentKeys) {
     try {

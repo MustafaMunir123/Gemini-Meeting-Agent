@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to create meeting minutes'
-    const is403 = message.includes('Insufficient Permission') || (e && typeof e === 'object' && (e as { code?: number }).code === 403)
+    const is403 = message.includes('Insufficient Permission') || (e && typeof e === 'object' && (e as unknown as { code?: number }).code === 403)
     if (is403) {
       return NextResponse.json(
         {
