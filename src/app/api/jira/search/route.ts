@@ -123,16 +123,16 @@ function buildIssuesContext(issues: JiraIssue[]): string {
 async function answerWithGemini(query: string, issuesContext: string): Promise<{ answer: string; link: string; details: string }> {
   const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('Missing Gemini API key')
-  const prompt = `You are a meeting assistant. The user asked: "${query}"
+  const prompt = `You are a meeting assistant. The user asked in the meeting: "${query}"
 
-Below are Jira issues in KEY_NAME: KEY_VALUE format (one pair per line). Fields: key, summary, type, status, labels, assignee, parentKey, parentSummary, parentAssignee, link. Use ALL of this data.
+Below are Jira issues in KEY_NAME: KEY_VALUE format (one issue per block). Pick only the ticket(s) that match what the user asked for (one ticket if they asked for a specific one; at most 5 if they asked for several).
 
 ${issuesContext || '(No issues returned.)'}
 
 Respond in JSON only, with exactly these keys (no markdown, no extra text):
-- "answer": A very short spoken reply (1-2 sentences), e.g. "I found a ticket: [brief summary]. I'll share the link in chat."
+- "answer": A very short spoken reply (1-2 sentences) suitable for voice, e.g. "I found something relevant: [brief summary]. I'll share the link in chat."
 - "link": The best matching issue link or empty string if nothing matches.
-- "details": For meeting chat, include for each matching issue ALL of: key, type, status, labels, assignee, parent (key and parent assignee when present), link, and a brief summary. Do not skip labels, assignee, or parent—use every field that was provided. No ticket description.`
+- "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
 
   const model = process.env.JIRA_SEARCH_GEMINI_MODEL || process.env.DRIVE_SEARCH_GEMINI_MODEL || 'gemini-2.5-flash'
   const res = await fetch(
@@ -193,7 +193,14 @@ export async function POST(request: NextRequest) {
     const issues = await fetchJiraIssues(jql, maxResults)
     const issuesContext = buildIssuesContext(issues)
     const result = await answerWithGemini(query, issuesContext)
-    return NextResponse.json(result)
+    // Use LLM's details only (never fall back to full issue list—we want only the asked-for ticket(s))
+    const details =
+      typeof result.details === 'string' && result.details.trim()
+        ? result.details.trim()
+        : issues.length > 0
+          ? `${result.answer || 'Jira search completed.'}${result.link ? '\n' + result.link : ''}`
+          : result.answer || 'No matching Jira tickets found.'
+    return NextResponse.json({ ...result, details })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Jira search failed'
     return NextResponse.json({ error: message }, { status: 500 })

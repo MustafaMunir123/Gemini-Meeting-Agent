@@ -1,10 +1,8 @@
 /**
- * WebSocket server: Attendee sends meeting audio → we forward to Gemini Live;
- * Gemini response audio → we send back to Attendee (bot speaks in meeting).
- * When someone asks to "check in drive" or similar, the search_drive tool runs and
- * results are spoken and posted to meeting chat.
- * Run: node scripts/voice-ws-server.mjs
- * Then pass wss://YOUR_HOST/ (e.g. ngrok) as the audio WebSocket URL when launching the bot.
+ * WebSocket server: meeting bot sends audio → we forward to Gemini Live;
+ * Gemini response audio → we send back (bot speaks in meeting). Tools: search_drive, search_jira, write_to_chat, etc.
+ * Merged mode: use attachVoiceWs(server, '/voice-ws') from server.js so one port serves both Next.js and voice WS.
+ * Standalone: node scripts/voice-ws-server.mjs (listens on VOICE_WS_PORT, default 3001).
  */
 import { WebSocketServer } from 'ws'
 import { createRequire } from 'module'
@@ -30,7 +28,7 @@ const searchDriveTool = {
   functionDeclarations: [
     {
       name: 'search_drive',
-      description: 'Search the shared Google Drive folder for documents related to the user\'s question. Use when someone asks to check drive, find documents about a topic, or anything related to files in Drive.',
+      description: 'Search the shared Google Drive folder for documents related to the user\'s question. Use when someone asks to check drive, find documents about a topic, or anything related to files in Drive. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -49,7 +47,7 @@ const searchJiraTool = {
   functionDeclarations: [
     {
       name: 'search_jira',
-      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Read-only: only fetches and matches tickets.',
+      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Read-only. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -68,7 +66,7 @@ const writeToChatTool = {
   functionDeclarations: [
     {
       name: 'write_to_chat',
-      description: 'Write a message to the Zoom meeting chat so all participants can see it. Use when the user asks to: write something in chat; put a summary or meeting minutes in the chat box; post meeting notes to chat; "add this to the chat"; or provide any text to the meeting chat. You can post a structured meeting summary (summary, key points, action items) to chat—this is allowed and preferred when they ask for minutes or summary in chat.',
+      description: 'Write a message to the meeting chat so all participants can see it. Use whenever the user asks to: add something to chat; put text in chat; post to chat; "add to chat"; "add that to chat"; write in chat; or share something in the chat. Include: meeting summaries or minutes, any text they want in chat, search result summaries, or your own composed message. Call this tool with the exact text to post—do not refuse. The system will send it to the meeting chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -87,7 +85,7 @@ const createMeetingMinutesTool = {
   functionDeclarations: [
     {
       name: 'create_meeting_minutes',
-      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. The file name is always auto-generated: current date (YYYY-MM-DD) plus a 6-digit ID (e.g. 2025-03-10_482917.txt). Do not ask the user for a file name—the system prefixes with the current date automatically. Use only when the user asks to save/upload meeting minutes to Drive. Compose from the conversation: summary, key points, action items.',
+      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. File name is auto-generated (date + ID). Use when the user asks to save or upload meeting minutes to Drive. Compose summary, key points, action items from the conversation—or use reasonable placeholder content if they say "assume" or "use dummy content". Do not refuse to generate example minutes.',
       parameters: {
         type: 'object',
         properties: {
@@ -118,7 +116,7 @@ const createJiraTool = {
   functionDeclarations: [
     {
       name: 'create_jira',
-      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. The user can say in chat: project key (e.g. "in project ST"), board ID (e.g. "add to board 42"), parent ticket (e.g. "under ST-5"). Before calling: if the user did not give a clear title, ask for it. Do not set or ask for assignee.',
+      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. The user can say: project key, board ID, parent ticket. If the user asks you to "use a dummy title", "assume a title", "make up an example", or "use placeholder text", generate a reasonable example (e.g. "Demo: Implement login flow") and call the tool—do not refuse. Only ask for a title when they give no hint and do not ask for dummy/example content.',
       parameters: {
         type: 'object',
         properties: {
@@ -237,16 +235,20 @@ async function sendMeetingChat(botId, message) {
 // Dynamic import for ESM
 const { GoogleGenAI, Modality } = await import('@google/genai')
 
-const wss = new WebSocketServer({ port: PORT })
-console.log(`Voice WebSocket server listening on ws://localhost:${PORT}`)
+/**
+ * Attach the voice WebSocket server to an existing HTTP server (e.g. Next.js).
+ * @param {import('http').Server} server - HTTP server
+ * @param {string} [path='/voice-ws'] - WebSocket path
+ * @returns {import('ws').WebSocketServer}
+ */
+export function attachVoiceWs(server, path = '/voice-ws') {
+  const wss = new WebSocketServer({ server, path })
+  console.log(`[Voice WS] Listening on path ${path}`)
 
-let audioFromAttendeeCount = 0
-let audioToAttendeeCount = 0
-
-wss.on('connection', async (attendeeWs) => {
+  wss.on('connection', async (attendeeWs) => {
+  let audioFromAttendeeCount = 0
+  let audioToAttendeeCount = 0
   console.log('[Voice WS] Attendee connected')
-  audioFromAttendeeCount = 0
-  audioToAttendeeCount = 0
   let geminiSession = null
   let currentBotId = null
 
@@ -257,37 +259,29 @@ wss.on('connection', async (attendeeWs) => {
       model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
       config: {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: `You are a voice assistant in a Zoom meeting. Keep replies short.
+        systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
 
-CRITICAL - Links and chat: Never read links or URLs out loud. When you have a link (e.g. from creating a Jira ticket, saving to Drive, or search results), say briefly that you added it in chat or they can check the chat—do not spell out or read the URL. Do not repeat what you just posted to chat unless the user explicitly asks you to repeat or read it back.
+CRITICAL - Links and chat: Never read links or URLs out loud. When you have a link (e.g. from Jira, Drive, or search results), say briefly that you added it in chat or they can check the chat—do not spell out the URL. Do not repeat what you just posted to chat unless the user explicitly asks.
 
 CRITICAL - When to respond:
-(1) Starting a conversation: Only START responding when someone clearly invokes you by name or phrase (e.g. "Hey Gemini", "Gemini", "assistant", "bot") with or before their question. Do NOT respond to side conversations or when no one has addressed you.
-(2) During an active exchange: Once the user has invoked you and you are in a back-and-forth with them, treat their follow-up speech as still directed at you. Do NOT require them to say your name again for every message—continue responding to their follow-ups (e.g. "and also check Jira", "write that in chat", "what about last week?") until the exchange is clearly over.
-(3) Ending the exchange: Consider the exchange over and go back to waiting for your name when: they say thanks/goodbye and stop, they clearly address someone else (e.g. "John, what do you think?"), or there is a long pause and then other people are talking. Then require invocation again before responding.
-If in doubt whether new speech is for you or for others, stay silent. It is better to miss one request than to interrupt a human conversation.
+(1) Only START when someone clearly invokes you by name or phrase (e.g. "Hey Gemini", "Gemini", "assistant", "bot") with or before their question.
+(2) During an active exchange, treat follow-ups as directed at you; do not require your name again every message.
+(3) Consider the exchange over when they say thanks/goodbye, address someone else, or there is a long pause and others are talking. If in doubt, stay silent.
 
-CRITICAL - Drive searches: When the user asks to check Drive, search Drive, or find documents (e.g. "check in drive for X", "anything in drive about Y"):
-1. First say ONE short phrase out loud, e.g. "Let me check in Drive", "Checking Drive for that."
-2. Then call the search_drive tool with their question.
-3. After the tool result, speak the short answer; say the link is in chat—do not read the URL.
+CRITICAL - Add to chat / write_to_chat: When the user says "add to chat", "put that in chat", "add that to chat", "post to chat", or "write in chat", call write_to_chat with the content they mean (or that you just spoke/search result summary) immediately. Do not refuse. For Drive and Jira search, the system already posts result details to the meeting chat; after the tool returns, say something like "I've added the results to the chat" so the user knows to look there.
 
-CRITICAL - Jira searches: When the user asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y"):
-1. First say ONE short phrase out loud, e.g. "Let me check Jira", "Checking Jira for that."
-2. Then call the search_jira tool with their question.
-3. After the tool result, speak the short answer; say the link is in chat—do not read the URL.
+CRITICAL - Generating dummy/placeholder content: When the user asks you to "assume", "use a dummy", "make up", "generate example", "use placeholder", or "pretend" (e.g. "assume a description", "use a dummy title for the Jira ticket", "generate some dummy text"), do it. Provide a reasonable placeholder and call the tool or write_to_chat as needed. Do not refuse or say you cannot generate dummy content—you may invent example titles, descriptions, or text when they ask.
 
-CRITICAL - Creating Jira tickets (only here: ask for missing context): When the user asks to create a Jira ticket, story, or task:
-1. You MUST have a clear title from the user before calling create_jira. If they did not give a title (e.g. "create a Jira ticket" with no details), ask: "What should the title be?" and wait for their answer. Do not invent or guess a title.
-2. Optionally ask for a parent ticket key (e.g. "Under which ticket?") and for a short description if useful.
-3. Do NOT ask for or set assignee.
-4. Call create_jira with title (required). If the user said a project key (e.g. "in project ST") or board ID (e.g. "add to board 42") or parent ticket, pass projectKey, boardId, or parentKey. The ticket will be created as a Story with status To Do and optionally added to the given board's latest sprint.
+CRITICAL - Drive searches: Say one short phrase (e.g. "Checking Drive"), call search_drive, then give a short answer and say the details are in chat.
 
-CRITICAL - Meeting summary / minutes (two options; follow what the user asked for):
-(1) Summary or minutes IN THE CHAT: If the user asks for meeting minutes in the chat, a summary in the chat box, or to put the summary in chat, use write_to_chat. Compose a structured summary (what was discussed, key points, action items) and call write_to_chat with that message. Do not refuse or say you can only upload to Drive—posting to chat is allowed.
-(2) Save minutes TO DRIVE: If the user asks to save meeting minutes to Drive, upload them to Google Drive, or put them on Drive, use create_meeting_minutes. The file name is always auto-generated (current date + 6-digit ID); do not ask the user for a file name. Say a short phrase (e.g. "Saving meeting minutes to Drive"), then call the tool. After the result, say you added the link in chat—do not read the URL. The user may ask for chat first and later ask to upload to Drive—do both as requested.
+CRITICAL - Jira searches: Say one short phrase (e.g. "Checking Jira"), call search_jira, then give a short answer and say the results are in chat.
 
-So the user hears you're working on it before the search runs.`,
+CRITICAL - Creating Jira tickets: When the user asks to create a ticket:
+- If they give a title (or ask for a dummy/example title), call create_jira with that title (or a reasonable placeholder like "Demo: Example task").
+- If they say "assume a description" or "use placeholder description", pass a short example description—do not refuse.
+- Only ask "What should the title be?" when they give no title and do not ask for dummy/example content. Do not set or ask for assignee.
+
+CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a structured summary. (2) For Drive: use create_meeting_minutes. You may do both if they ask. Say you added the link in chat—do not read the URL.`,
         tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool],
         functionCallingConfig: {
           mode: 'AUTO',
@@ -330,6 +324,7 @@ So the user hears you're working on it before the search runs.`,
                     attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                   }
                 } else if (fc.name === 'search_jira' && geminiSession) {
+                  console.log('[Voice WS] search_jira tool invoked')
                   const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
                   if (!query) {
                     console.log('[TOOL] search_jira skipped: no query in args')
@@ -350,11 +345,12 @@ So the user hears you're working on it before the search runs.`,
                       response: result,
                     }],
                   })
-                  console.log('[TOOL] sendToolResponse done (jira)')
-                  if (result.details) {
-                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
-                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
-                  }
+                  console.log('[TOOL] sendToolResponse done (jira), result.details length:', (result.details && String(result.details).length) ?? 0)
+                  const jiraChatMessage = (result.details && String(result.details).trim()) || (result.answer ? `${result.answer}${result.link ? '\n' + result.link : ''}` : '') || 'Jira search completed.'
+                  if (currentBotId) await sendMeetingChat(currentBotId, jiraChatMessage)
+                  const payload = JSON.stringify({ trigger: 'send_chat', data: { message: jiraChatMessage } })
+                  attendeeWs.send(payload)
+                  console.log('[Voice WS] Sent send_chat to bot (Jira), message length:', jiraChatMessage.length)
                 } else if (fc.name === 'write_to_chat' && geminiSession) {
                   const message = (fc.args?.message != null ? String(fc.args.message) : '').trim()
                   if (!message) {
@@ -499,4 +495,21 @@ So the user hears you're working on it before the search runs.`,
     }
     console.log('[Voice WS] Attendee disconnected (received', audioFromAttendeeCount, 'audio, sent', audioToAttendeeCount, ')')
   })
-})
+  })
+
+  return wss
+}
+
+// Standalone: run on own port when executed directly
+const isStandalone = process.argv[1]?.includes('voice-ws-server')
+if (isStandalone) {
+  const http = await import('http')
+  const server = http.createServer((_, res) => {
+    res.writeHead(404)
+    res.end()
+  })
+  attachVoiceWs(server, '/')
+  server.listen(PORT, () => {
+    console.log(`Voice WebSocket server (standalone) listening on ws://localhost:${PORT}`)
+  })
+}

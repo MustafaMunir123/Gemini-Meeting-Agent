@@ -203,7 +203,7 @@ export default function App({ jwt }: { jwt: string | null }) {
           <div className="label-optional">
             <input
               type="text"
-              placeholder="wss://xxxx.ngrok.io or leave empty for local"
+              placeholder="Leave empty to use this server (e.g. ws://localhost:3000/voice-ws)"
               value={voiceWsUrl}
               onChange={(e) => setVoiceWsUrl(e.target.value)}
               className="input-url"

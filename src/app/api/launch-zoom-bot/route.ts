@@ -22,7 +22,11 @@ export async function POST(request: NextRequest) {
   if (!meeting_url) {
     return NextResponse.json({ error: 'meeting_url is required' }, { status: 400 })
   }
-  const voice_ws_url = body.voice_ws_url?.trim() || 'ws://localhost:3001'
+  // Default: same server, /voice-ws. Use PORT (Cloud Run sets 8080) so localhost works when bot runs in same container.
+  const port = process.env.PORT || '3000'
+  const baseUrl = (process.env.APP_URL || `http://localhost:${port}`).replace(/\/$/, '')
+  const defaultVoiceWs = baseUrl.replace(/^http:\/\//, 'ws://').replace(/^https:\/\//, 'wss://') + '/voice-ws'
+  const voice_ws_url = body.voice_ws_url?.trim() || defaultVoiceWs
 
   const clientId = process.env.ZOOM_CLIENT_ID
   const clientSecret = process.env.ZOOM_CLIENT_SECRET

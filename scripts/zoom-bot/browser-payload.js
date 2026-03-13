@@ -268,11 +268,20 @@
           if (msg.trigger === 'realtime_audio.bot_output' && msg.data?.chunk && window.virtualMic) {
             window.virtualMic.playPCM(msg.data.chunk, msg.data.sample_rate || 24000)
           }
-          if (msg.trigger === 'send_chat' && msg.data?.message && typeof ZoomMtg !== 'undefined' && ZoomMtg.sendChat) {
-            const text = typeof msg.data.message === 'string' ? msg.data.message : JSON.stringify(msg.data.message)
+          if (msg.trigger === 'send_chat' && msg.data?.message != null) {
+            if (typeof ZoomMtg === 'undefined' || typeof ZoomMtg.sendChat !== 'function') {
+              console.warn('[Bot] send_chat received but ZoomMtg.sendChat not available')
+              return
+            }
+            let text = typeof msg.data.message === 'string' ? msg.data.message : JSON.stringify(msg.data.message)
+            const maxLen = 4000
+            if (text.length > maxLen) {
+              text = text.slice(0, maxLen - 20) + '\n\n... (truncated)'
+            }
+            if (!text.trim()) return
+            console.log('[Bot] Sending to meeting chat, length:', text.length)
             ZoomMtg.sendChat({
-              message: text,
-              userId: 0,
+              message: text.trim(),
               success: () => console.log('[Bot] Chat sent to meeting'),
               error: (e) => console.warn('[Bot] sendChat error', e),
             })

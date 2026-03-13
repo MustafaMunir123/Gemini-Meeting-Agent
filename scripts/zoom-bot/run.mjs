@@ -26,7 +26,7 @@ const clientSecret = (process.env.ZOOM_CLIENT_SECRET || '').trim()
 const meetingUrl = process.env.MEETING_URL
 const meetingNumber = process.env.ZOOM_MEETING_NUMBER
 const meetingPassword = process.env.ZOOM_MEETING_PASSWORD || ''
-const voiceWsUrl = process.env.VOICE_WS_URL || 'ws://localhost:3001'
+const voiceWsUrl = process.env.VOICE_WS_URL || 'ws://localhost:3000/voice-ws'
 const botName = process.env.ZOOM_BOT_NAME || 'Gemini Sidekick'
 
 if (!clientId || !clientSecret) {
@@ -91,6 +91,12 @@ function connectToVoiceServer() {
   voiceWs.on('message', (data) => {
     if (!currentBrowserWs || currentBrowserWs.readyState !== 1) return
     const str = typeof data === 'string' ? data : (Buffer.isBuffer(data) ? data.toString('utf8') : String(data))
+    try {
+      const parsed = JSON.parse(str)
+      if (parsed?.trigger === 'send_chat') {
+        console.log('[Bridge] Forwarding send_chat to browser, length:', parsed?.data?.message?.length ?? 0)
+      }
+    } catch (_) {}
     currentBrowserWs.send(str)
   })
 }

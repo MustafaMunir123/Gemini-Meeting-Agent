@@ -41,7 +41,7 @@ Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a mee
 
 ## Flow
 
-1. **Launch meeting bot**: Enter the meeting URL and click **Launch meeting bot**. The bot joins the meeting and connects to the voice agent (e.g. `npm run voice-ws` on port 3001).
+1. **Launch meeting bot**: Enter the meeting URL and click **Launch meeting bot**. The bot joins the meeting and connects to the voice agent on the **same server** at `ws://localhost:3000/voice-ws` (single-port deployment).
 2. **In-browser session** (optional): Click **Join session** to join via the embedded client, then when **Gemini: Connected** appears, click and hold **Hold to talk to agent**.
 3. While holding: your mic is muted, your voice is sent to Gemini, and the agent’s reply is played back.
 4. Release the button – mic is unmuted again.
@@ -56,7 +56,8 @@ Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a mee
 
 - `src/data/getToken.ts` – Server-only JWT generation for the in-browser session.
 - `src/lib/GeminiLiveVoiceClient.ts` – Gemini Live client: connect, send mic audio, receive/play response audio, PTT signals.
-- `scripts/voice-ws-server.mjs` – Voice WebSocket server (port 3001) used by the meeting bot.
+- `server.js` – Single-port server: Next.js + Voice WebSocket at `/voice-ws`. Run with `npm run dev` or `npm run start`.
+- `scripts/voice-ws-server.mjs` – Voice WebSocket logic; mounted on the main server, or run standalone with `npm run voice-ws` (port 3001).
 - `scripts/zoom-bot/` – Standalone meeting bot script (joins via URL, no in-browser client required).
 - `src/app/App.tsx` – Launch flow, integrations, and in-browser session UI.
 
