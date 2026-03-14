@@ -6,8 +6,8 @@ function isLocalAttendee(base: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  const base = process.env.ATTENDEE_API_BASE_URL
-  const token = process.env.ATTENDEE_API_KEY ?? ''
+  const base = process.env['ATTENDEE_API_BASE_URL']
+  const token = process.env['ATTENDEE_API_KEY'] ?? ''
   if (!base) {
     return NextResponse.json(
       { error: 'Missing ATTENDEE_API_BASE_URL' },

@@ -4,7 +4,8 @@ import { getAuthenticatedClient } from '@/lib/google-auth'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID
+// Read at runtime so Cloud Run env vars work (Next.js won't inline process.env['VAR'])
+const getDriveFolderId = () => process.env['DRIVE_FOLDER_ID']
 const SUPPORTED_MIMES = new Set([
   'application/pdf',
   'text/plain',
@@ -76,7 +77,7 @@ function buildDocContext(files: FileEntry[], contents: Map<string, string>): str
 }
 
 async function answerWithGemini(query: string, docContext: string): Promise<{ answer: string; link: string; details: string }> {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY
+  const apiKey = process.env['NEXT_PUBLIC_GEMINI_API_KEY'] || process.env['GEMINI_API_KEY']
   if (!apiKey) throw new Error('Missing Gemini API key')
   const prompt = `You are a meeting assistant. The user asked in the meeting: "${query}"
 
@@ -89,7 +90,7 @@ Respond in JSON only, with exactly these keys (no markdown, no extra text):
 - "link": The best matching document link (https://drive.google.com/...) or empty string if nothing matches.
 - "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
 
-  const model = process.env.DRIVE_SEARCH_GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = process.env['DRIVE_SEARCH_GEMINI_MODEL'] || 'gemini-2.5-flash'
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -117,7 +118,7 @@ Respond in JSON only, with exactly these keys (no markdown, no extra text):
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.DRIVE_SEARCH_SECRET
+  const secret = process.env['DRIVE_SEARCH_SECRET']
   if (secret) {
     const header = request.headers.get('x-drive-search-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
     if (header !== secret) {
@@ -125,7 +126,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!DRIVE_FOLDER_ID) {
+  const driveFolderId = getDriveFolderId()
+  if (!driveFolderId) {
     return NextResponse.json({ error: 'DRIVE_FOLDER_ID not configured' }, { status: 500 })
   }
 
@@ -147,7 +149,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const drive = google.drive({ version: 'v3', auth })
-    const files = await listFilesInFolder(drive, DRIVE_FOLDER_ID)
+    const files = await listFilesInFolder(drive, driveFolderId)
     const contents = new Map<string, string>()
     for (const file of files) {
       const text = await extractText(drive, file)

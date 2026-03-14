@@ -23,13 +23,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'meeting_url is required' }, { status: 400 })
   }
   // Default: same server, /voice-ws. Use PORT (Cloud Run sets 8080) so localhost works when bot runs in same container.
-  const port = process.env.PORT || '3000'
-  const baseUrl = (process.env.APP_URL || `http://localhost:${port}`).replace(/\/$/, '')
+  const port = process.env['PORT'] || '3000'
+  const baseUrl = (process.env['APP_URL'] || `http://localhost:${port}`).replace(/\/$/, '')
   const defaultVoiceWs = baseUrl.replace(/^http:\/\//, 'ws://').replace(/^https:\/\//, 'wss://') + '/voice-ws'
   const voice_ws_url = body.voice_ws_url?.trim() || defaultVoiceWs
 
-  const clientId = process.env.ZOOM_CLIENT_ID
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET
+  const clientId = process.env['ZOOM_CLIENT_ID']
+  const clientSecret = process.env['ZOOM_CLIENT_SECRET']
   if (!clientId || !clientSecret) {
     return NextResponse.json(
       { error: 'ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required for the meeting bot' },
@@ -64,9 +64,6 @@ export async function POST(request: NextRequest) {
   child.stderr?.on('data', (chunk) => process.stderr.write(chunk))
   child.on('exit', (code) => {
     if (getZoomBotProcess() === child) setZoomBotProcess(null)
-    if (code != null && code !== 0) {
-      console.error('[launch-zoom-bot] Process exited with code', code)
-    }
   })
 
   return NextResponse.json({

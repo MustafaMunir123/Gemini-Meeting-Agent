@@ -331,6 +331,29 @@ body {
   background: linear-gradient(135deg, #27272a 0%, #3f3f46 100%);
 }
 
+.run-locally-box {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  background: #18181b;
+  border-radius: 8px;
+  border: 1px solid #3f3f46;
+}
+.run-locally-label {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #a1a1aa;
+}
+.run-locally-command {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: #0f0f12;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Gate (login key) page when LOGIN_API_KEY is set */
 .gate-page {
   position: fixed;

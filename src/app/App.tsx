@@ -22,6 +22,7 @@ export default function App({ jwt }: { jwt: string | null }) {
   const [botLaunching, setBotLaunching] = useState(false)
   const [botLaunched, setBotLaunched] = useState(false)
   const [botStopping, setBotStopping] = useState(false)
+  const [runLocallyCommand, setRunLocallyCommand] = useState<string | null>(null)
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null)
   const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null)
   const zoomClientRef = useRef<ZoomClient | null>(null)
@@ -133,6 +134,7 @@ export default function App({ jwt }: { jwt: string | null }) {
       return
     }
     setError(null)
+    setRunLocallyCommand(null)
     setBotLaunching(true)
     setBotLaunched(false)
     try {
@@ -142,7 +144,12 @@ export default function App({ jwt }: { jwt: string | null }) {
         body: JSON.stringify({ meeting_url: url }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || res.statusText)
+      if (!res.ok) {
+        if (data.runLocally && data.command) {
+          setRunLocallyCommand(data.command)
+        }
+        throw new Error(data.error || res.statusText)
+      }
       setBotLaunched(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to launch meeting bot')
@@ -176,6 +183,12 @@ export default function App({ jwt }: { jwt: string | null }) {
           </p>
         </header>
         {error && <div className="error">{error}</div>}
+        {runLocallyCommand && (
+          <div className="run-locally-box">
+            <p className="run-locally-label">Run this in your terminal (from the app repo):</p>
+            <pre className="run-locally-command">{runLocallyCommand}</pre>
+          </div>
+        )}
         <section className="launch-section">
           <div className="launch-row">
             <input

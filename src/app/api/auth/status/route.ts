@@ -10,11 +10,15 @@ function sign(value: string, secret: string): string {
 }
 
 export async function GET() {
-  const loginKey = process.env.LOGIN_API_KEY?.trim()
+  // Dynamic key so Next.js doesn't inline at build time (Cloud Run sets this at runtime)
+  const loginKey = (process.env['LOGIN_API_KEY'] ?? '').trim()
   const gateEnabled = !!loginKey
 
   if (!gateEnabled) {
-    return NextResponse.json({ gateEnabled: false, authenticated: true })
+    const res = NextResponse.json({ gateEnabled: false, authenticated: true })
+    // So you can confirm in DevTools → Network why the gate didn't show (e.g. on Cloud Run, set LOGIN_API_KEY in service env vars)
+    res.headers.set('X-Gate-Disabled', 'LOGIN_API_KEY not set')
+    return res
   }
 
   const cookieStore = await cookies()

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const JIRA_BASE_URL = process.env.JIRA_BASE_URL?.replace(/\/$/, '')
-const JIRA_EMAIL = process.env.JIRA_EMAIL
-const JIRA_API_KEY = process.env.JIRA_API_KEY
+const getJiraConfig = () => ({
+  baseUrl: (process.env['JIRA_BASE_URL'] ?? '').replace(/\/$/, ''),
+  email: process.env['JIRA_EMAIL'],
+  apiKey: process.env['JIRA_API_KEY'],
+})
 
 type JiraIssue = {
   key: string
@@ -16,27 +18,27 @@ type JiraIssue = {
   parentAssignee?: string
 }
 
-function getAuthHeader(): string {
-  if (!JIRA_API_KEY) throw new Error('Missing JIRA_API_KEY')
-  if (JIRA_EMAIL) {
-    const encoded = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_KEY}`).toString('base64')
+function getAuthHeader(cfg: ReturnType<typeof getJiraConfig>): string {
+  if (!cfg.apiKey) throw new Error('Missing JIRA_API_KEY')
+  if (cfg.email) {
+    const encoded = Buffer.from(`${cfg.email}:${cfg.apiKey}`).toString('base64')
     return `Basic ${encoded}`
   }
-  return `Bearer ${JIRA_API_KEY}`
+  return `Bearer ${cfg.apiKey}`
 }
 
-async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIssue[]> {
-  if (!JIRA_BASE_URL) throw new Error('Missing JIRA_BASE_URL')
+async function fetchJiraIssues(cfg: ReturnType<typeof getJiraConfig>, jql: string, maxResults: number): Promise<JiraIssue[]> {
+  if (!cfg.baseUrl) throw new Error('Missing JIRA_BASE_URL')
   const params = new URLSearchParams({
     jql,
     maxResults: String(maxResults),
     fields: 'summary,status,issuetype,labels,assignee,parent',
   })
-  const res = await fetch(`${JIRA_BASE_URL}/rest/api/3/search/jql?${params}`, {
+  const res = await fetch(`${cfg.baseUrl}/rest/api/3/search/jql?${params}`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
-      Authorization: getAuthHeader(),
+      Authorization: getAuthHeader(cfg),
     },
   })
   if (!res.ok) {
@@ -73,8 +75,8 @@ async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIss
   const parentMeta: Record<string, { summary?: string; assignee?: string }> = {}
   for (const pkey of parentKeys) {
     try {
-      const pres = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue/${pkey}?fields=summary,assignee`, {
-        headers: { Accept: 'application/json', Authorization: getAuthHeader() },
+      const pres = await fetch(`${cfg.baseUrl}/rest/api/3/issue/${pkey}?fields=summary,assignee`, {
+        headers: { Accept: 'application/json', Authorization: getAuthHeader(cfg) },
       })
       if (pres.ok) {
         const pdata = (await pres.json()) as { fields?: { summary?: string; assignee?: { displayName?: string } } }
@@ -99,8 +101,8 @@ async function fetchJiraIssues(jql: string, maxResults: number): Promise<JiraIss
   return issues
 }
 
-function buildIssuesContext(issues: JiraIssue[]): string {
-  const baseUrl = JIRA_BASE_URL || 'https://your-domain.atlassian.net'
+function buildIssuesContext(issues: JiraIssue[], baseUrl: string): string {
+  const url = baseUrl || 'https://your-domain.atlassian.net'
   return issues
     .map((i) => {
       const lines = [
@@ -113,7 +115,7 @@ function buildIssuesContext(issues: JiraIssue[]): string {
         `parentKey: ${i.parentKey ?? '—'}`,
         `parentSummary: ${i.parentSummary ?? '—'}`,
         `parentAssignee: ${i.parentAssignee ?? '—'}`,
-        `link: ${baseUrl}/browse/${i.key}`,
+        `link: ${url}/browse/${i.key}`,
       ]
       return lines.join('\n')
     })
@@ -121,7 +123,7 @@ function buildIssuesContext(issues: JiraIssue[]): string {
 }
 
 async function answerWithGemini(query: string, issuesContext: string): Promise<{ answer: string; link: string; details: string }> {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY
+  const apiKey = process.env['NEXT_PUBLIC_GEMINI_API_KEY'] || process.env['GEMINI_API_KEY']
   if (!apiKey) throw new Error('Missing Gemini API key')
   const prompt = `You are a meeting assistant. The user asked in the meeting: "${query}"
 
@@ -134,7 +136,7 @@ Respond in JSON only, with exactly these keys (no markdown, no extra text):
 - "link": The best matching issue link or empty string if nothing matches.
 - "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
 
-  const model = process.env.JIRA_SEARCH_GEMINI_MODEL || process.env.DRIVE_SEARCH_GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = process.env['JIRA_SEARCH_GEMINI_MODEL'] || process.env['DRIVE_SEARCH_GEMINI_MODEL'] || 'gemini-2.5-flash'
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -162,7 +164,8 @@ Respond in JSON only, with exactly these keys (no markdown, no extra text):
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.JIRA_SEARCH_SECRET
+  const cfg = getJiraConfig()
+  const secret = process.env['JIRA_SEARCH_SECRET']
   if (secret) {
     const header = request.headers.get('x-jira-search-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
     if (header !== secret) {
@@ -170,7 +173,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!JIRA_BASE_URL || !JIRA_API_KEY) {
+  if (!cfg.baseUrl || !cfg.apiKey) {
     return NextResponse.json({ error: 'JIRA_BASE_URL and JIRA_API_KEY (and JIRA_EMAIL for Cloud) are required' }, { status: 500 })
   }
 
@@ -185,13 +188,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 })
   }
 
-  const defaultJql = process.env.JIRA_DEFAULT_JQL?.trim() || 'updated >= -90d ORDER BY updated DESC'
+  const defaultJql = (process.env['JIRA_DEFAULT_JQL'] ?? '').trim() || 'updated >= -90d ORDER BY updated DESC'
   const jql = typeof body.jql === 'string' && body.jql.trim() ? body.jql.trim() : defaultJql
   const maxResults = 50
 
   try {
-    const issues = await fetchJiraIssues(jql, maxResults)
-    const issuesContext = buildIssuesContext(issues)
+    const issues = await fetchJiraIssues(cfg, jql, maxResults)
+    const issuesContext = buildIssuesContext(issues, cfg.baseUrl)
     const result = await answerWithGemini(query, issuesContext)
     // Use LLM's details only (never fall back to full issue list—we want only the asked-for ticket(s))
     const details =

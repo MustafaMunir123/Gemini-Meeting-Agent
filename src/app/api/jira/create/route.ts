@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const JIRA_BASE_URL = process.env.JIRA_BASE_URL?.replace(/\/$/, '')
-const JIRA_EMAIL = process.env.JIRA_EMAIL
-const JIRA_API_KEY = process.env.JIRA_API_KEY
-const JIRA_PROJECT_KEY = process.env.JIRA_PROJECT_KEY?.trim()
-const JIRA_BOARD_ID = process.env.JIRA_BOARD_ID?.trim()
+const getJiraConfig = () => ({
+  baseUrl: (process.env['JIRA_BASE_URL'] ?? '').replace(/\/$/, ''),
+  email: process.env['JIRA_EMAIL'],
+  apiKey: process.env['JIRA_API_KEY'],
+  projectKey: (process.env['JIRA_PROJECT_KEY'] ?? '').trim(),
+  boardId: (process.env['JIRA_BOARD_ID'] ?? '').trim(),
+})
 
-function getAuthHeader(): string {
-  if (!JIRA_API_KEY) throw new Error('Missing JIRA_API_KEY')
-  if (JIRA_EMAIL) {
-    const encoded = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_KEY}`).toString('base64')
+function getAuthHeader(cfg: ReturnType<typeof getJiraConfig>): string {
+  if (!cfg.apiKey) throw new Error('Missing JIRA_API_KEY')
+  if (cfg.email) {
+    const encoded = Buffer.from(`${cfg.email}:${cfg.apiKey}`).toString('base64')
     return `Basic ${encoded}`
   }
-  return `Bearer ${JIRA_API_KEY}`
+  return `Bearer ${cfg.apiKey}`
 }
 
 /** Build ADF description from plain text (one paragraph per line). */
@@ -29,10 +31,10 @@ function descriptionToAdf(text: string): { type: 'doc'; version: 1; content: unk
 }
 
 /** Get project key from an existing issue (by key). */
-async function getProjectKeyFromIssue(issueKey: string): Promise<string> {
-  if (!JIRA_BASE_URL) throw new Error('Missing JIRA_BASE_URL')
-  const res = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}?fields=project`, {
-    headers: { Accept: 'application/json', Authorization: getAuthHeader() },
+async function getProjectKeyFromIssue(issueKey: string, cfg: ReturnType<typeof getJiraConfig>): Promise<string> {
+  if (!cfg.baseUrl) throw new Error('Missing JIRA_BASE_URL')
+  const res = await fetch(`${cfg.baseUrl}/rest/api/3/issue/${issueKey}?fields=project`, {
+    headers: { Accept: 'application/json', Authorization: getAuthHeader(cfg) },
   })
   if (!res.ok) {
     const err = await res.text()
@@ -45,12 +47,12 @@ async function getProjectKeyFromIssue(issueKey: string): Promise<string> {
 }
 
 /** Add issue to the active or latest sprint for the board. */
-async function addIssueToLatestSprint(issueKey: string, boardIdOverride?: string): Promise<void> {
-  const boardId = (boardIdOverride || JIRA_BOARD_ID)?.trim()
-  if (!JIRA_BASE_URL || !boardId) return
-  const headers = { Accept: 'application/json', Authorization: getAuthHeader(), 'Content-Type': 'application/json' }
+async function addIssueToLatestSprint(issueKey: string, cfg: ReturnType<typeof getJiraConfig>, boardIdOverride?: string): Promise<void> {
+  const boardId = (boardIdOverride || cfg.boardId)?.trim()
+  if (!cfg.baseUrl || !boardId) return
+  const headers = { Accept: 'application/json', Authorization: getAuthHeader(cfg), 'Content-Type': 'application/json' }
   const sprintsRes = await fetch(
-    `${JIRA_BASE_URL}/rest/agile/1.0/board/${boardId}/sprint?state=active`,
+    `${cfg.baseUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`,
     { headers }
   )
   if (!sprintsRes.ok) return
@@ -58,21 +60,21 @@ async function addIssueToLatestSprint(issueKey: string, boardIdOverride?: string
   const active = sprintsData.values?.[0]
   if (!active?.id) {
     const futureRes = await fetch(
-      `${JIRA_BASE_URL}/rest/agile/1.0/board/${boardId}/sprint?state=future`,
+      `${cfg.baseUrl}/rest/agile/1.0/board/${boardId}/sprint?state=future`,
       { headers }
     )
     if (!futureRes.ok) return
     const futureData = (await futureRes.json()) as { values?: Array<{ id: number }> }
     const next = futureData.values?.[0]
     if (!next?.id) return
-    await fetch(`${JIRA_BASE_URL}/rest/agile/1.0/sprint/${next.id}/issue`, {
+    await fetch(`${cfg.baseUrl}/rest/agile/1.0/sprint/${next.id}/issue`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ issues: [issueKey] }),
     })
     return
   }
-  await fetch(`${JIRA_BASE_URL}/rest/agile/1.0/sprint/${active.id}/issue`, {
+  await fetch(`${cfg.baseUrl}/rest/agile/1.0/sprint/${active.id}/issue`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ issues: [issueKey] }),
@@ -80,7 +82,8 @@ async function addIssueToLatestSprint(issueKey: string, boardIdOverride?: string
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.JIRA_SEARCH_SECRET
+  const cfg = getJiraConfig()
+  const secret = process.env['JIRA_SEARCH_SECRET']
   if (secret) {
     const header = request.headers.get('x-jira-search-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
     if (header !== secret) {
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!JIRA_BASE_URL || !JIRA_API_KEY) {
+  if (!cfg.baseUrl || !cfg.apiKey) {
     return NextResponse.json(
       { error: 'JIRA_BASE_URL and JIRA_API_KEY (and JIRA_EMAIL for Cloud) are required' },
       { status: 500 }
@@ -123,10 +126,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (parentKey) {
-    projectKey = await getProjectKeyFromIssue(parentKey)
+    projectKey = await getProjectKeyFromIssue(parentKey, cfg)
     fields.parent = { key: parentKey }
   } else {
-    const projectKeyToUse = projectKeyFromBody || JIRA_PROJECT_KEY
+    const projectKeyToUse = projectKeyFromBody || cfg.projectKey
     if (!projectKeyToUse) {
       return NextResponse.json(
         { error: 'Project key required when not providing parentKey. Set JIRA_PROJECT_KEY in .env or say e.g. "in project ST" in the meeting.' },
@@ -139,12 +142,12 @@ export async function POST(request: NextRequest) {
   fields.project = { key: projectKey }
   // Do not set assignee. Status defaults to "To Do" on create.
 
-  const createRes = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue`, {
+  const createRes = await fetch(`${cfg.baseUrl}/rest/api/3/issue`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: getAuthHeader(),
+      Authorization: getAuthHeader(cfg),
     },
     body: JSON.stringify({ fields }),
   })
@@ -163,9 +166,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Jira returned no issue key' }, { status: 500 })
   }
 
-  await addIssueToLatestSprint(key, boardIdFromBody)
+  await addIssueToLatestSprint(key, cfg, boardIdFromBody)
 
-  const link = `${JIRA_BASE_URL}/browse/${key}`
+  const link = `${cfg.baseUrl}/browse/${key}`
   return NextResponse.json({
     key,
     link,
