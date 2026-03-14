@@ -40,7 +40,7 @@ gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudb
 echo "  Done."
 echo ""
 
-# 4. Build in Cloud Build and deploy (no Docker Hub pull — repo is already cloned)
+# 4. Repo and image config
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-gemini-sidekick}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
 REPO_NAME="gemini-sidekick"
@@ -50,14 +50,43 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "Building image in Cloud Build (from cloned repo, no large download)..."
-echo "  Tag: $GAR_IMAGE"
+# 5. Edit .env FIRST so we have NEXT_PUBLIC_GEMINI_API_KEY at build time (inlined into client bundle)
+echo "The script will open the .env file. Add NEXT_PUBLIC_GEMINI_API_KEY and other vars; this file is used for both build and runtime."
+echo "When finished, press Ctrl+X, then Y, then Enter to save."
 echo ""
+read -p "Press Enter to open the editor..."
 
+if ! command -v nano &> /dev/null; then
+  echo "nano could not be found, please install it."
+  exit 1
+fi
+nano .env
+
+# 6. Prepare .env.deploy (KEY=VALUE per line, .env format) for runtime env vars
+ENV_FILE_DEPLOY=""
+BUILD_ARG_GEMINI_KEY=""
+if [ -s ".env" ]; then
+  grep -v '^#' .env | grep -v '^[[:space:]]*$' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > .env.deploy
+  if [ -s ".env.deploy" ]; then
+    ENV_FILE_DEPLOY=".env.deploy"
+  fi
+  BUILD_ARG_GEMINI_KEY=$(grep '^NEXT_PUBLIC_GEMINI_API_KEY=' .env 2>/dev/null | sed 's/^NEXT_PUBLIC_GEMINI_API_KEY=//' | sed 's/^["'\'']//;s/["'\'']$//' | tr -d '\n\r')
+fi
+
+if [ -z "$ENV_FILE_DEPLOY" ]; then
+  echo "Warning: .env is empty. No runtime env vars will be set. Client may lack Gemini key if not passed at build."
+fi
+
+# 7. Ensure Artifact Registry repo exists, then build with cloudbuild.yaml (passes NEXT_PUBLIC at build time)
 gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" --project="$PROJECT_ID" 2>/dev/null || \
   gcloud artifacts repositories create "$REPO_NAME" --repository-format=docker --location="$REGION" --project="$PROJECT_ID"
 
-gcloud builds submit --tag "$GAR_IMAGE" --project="$PROJECT_ID" .
+echo "Building image in Cloud Build (NEXT_PUBLIC_GEMINI_API_KEY is baked into client at build time)..."
+echo "  Tag: $GAR_IMAGE"
+echo ""
+
+gcloud builds submit --config=cloudbuild.yaml --project="$PROJECT_ID" . \
+  --substitutions="_IMAGE=${GAR_IMAGE},_NEXT_PUBLIC_GEMINI_API_KEY=${BUILD_ARG_GEMINI_KEY}"
 
 DEPLOY_IMAGE="$GAR_IMAGE"
 echo ""
@@ -68,17 +97,71 @@ echo "  Service: $SERVICE_NAME"
 echo "  Region:  $REGION"
 echo ""
 
-gcloud run deploy "$SERVICE_NAME" \
-  --image "$DEPLOY_IMAGE" \
-  --region "$REGION" \
-  --platform managed \
-  --allow-unauthenticated \
-  --timeout 300 \
-  --memory 512Mi
+if [ -n "$ENV_FILE_DEPLOY" ]; then
+  echo "Deploying service with env vars from .env file..."
+  ENV_ARGS=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    ENV_ARGS+=(--set-env-vars "$line")
+  done < "$ENV_FILE_DEPLOY"
+  gcloud run deploy "$SERVICE_NAME" \
+    --image "$DEPLOY_IMAGE" \
+    --region "$REGION" \
+    --platform managed \
+    --allow-unauthenticated \
+    --timeout 300 \
+    --memory 512Mi \
+    "${ENV_ARGS[@]}"
+else
+  gcloud run deploy "$SERVICE_NAME" \
+    --image "$DEPLOY_IMAGE" \
+    --region "$REGION" \
+    --platform managed \
+    --allow-unauthenticated \
+    --timeout 300 \
+    --memory 512Mi
+fi
 
 echo ""
-echo "Done. Open your service URL and set env vars in the Cloud Run console:"
-echo "  Edit & Deploy → Variables & Secrets"
-echo "  Required: NEXT_PUBLIC_GEMINI_API_KEY, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET"
-echo "  Optional: JIRA_*, GOOGLE_*, DRIVE_*, APP_URL (your Cloud Run URL)"
+echo "Retrieving service URL to set APP_URL..."
+SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --platform=managed --project="$PROJECT_ID" --format='value(status.url)')
+
+if [ -z "$SERVICE_URL" ]; then
+    echo "Error: Failed to retrieve Service URL. APP_URL will not be set."
+    exit 1
+fi
+
+echo "  Service URL is: $SERVICE_URL"
+echo "Redeploying to set APP_URL..."
+
+# Second deploy: same env vars plus APP_URL
+if [ -n "$ENV_FILE_DEPLOY" ]; then
+  echo "APP_URL=$SERVICE_URL" >> .env.deploy
+  ENV_ARGS=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    ENV_ARGS+=(--set-env-vars "$line")
+  done < .env.deploy
+  gcloud run deploy "$SERVICE_NAME" \
+    --image "$DEPLOY_IMAGE" \
+    --region "$REGION" \
+    --platform managed \
+    --allow-unauthenticated \
+    --timeout 300 \
+    --memory 512Mi \
+    "${ENV_ARGS[@]}"
+else
+  gcloud run deploy "$SERVICE_NAME" \
+    --image "$DEPLOY_IMAGE" \
+    --region "$REGION" \
+    --platform managed \
+    --allow-unauthenticated \
+    --timeout 300 \
+    --memory 512Mi \
+    --set-env-vars="APP_URL=$SERVICE_URL"
+fi
+
+echo ""
+echo "✅ Deployment complete."
+echo "Service is available at: $SERVICE_URL"
 echo ""
