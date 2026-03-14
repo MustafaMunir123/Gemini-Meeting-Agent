@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
     npm ci --omit=dev && \
-    npx playwright install chromium --with-deps
+    npx playwright install chromium chromium_headless_shell --with-deps
 
 EXPOSE 8080
 

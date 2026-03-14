@@ -96,7 +96,7 @@ function connectToVoiceServer() {
       if (parsed?.trigger === 'send_chat') {
         console.log('[Bridge] Forwarding send_chat to browser, length:', parsed?.data?.message?.length ?? 0)
       }
-    } catch (_) {}
+    } catch (_) { }
     currentBrowserWs.send(str)
   })
 }
@@ -228,6 +228,7 @@ server.listen(PORT_HTTP, '127.0.0.1', () => {
 async function main() {
   const { chromium } = await import('playwright')
   const browser = await chromium.launch({
+    channel: 'chromium', // use full Chromium (Docker installs this); avoid chromium_headless_shell which may not be installed
     headless: process.env.HEADLESS !== '0',
     args: ['--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
   })
