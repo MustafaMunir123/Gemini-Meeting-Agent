@@ -9,6 +9,10 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retries 5 && \
     npm ci
 
+# NEXT_PUBLIC_* is inlined at build time (client bundle). Pass at build: --build-arg NEXT_PUBLIC_GEMINI_API_KEY=...
+ARG NEXT_PUBLIC_GEMINI_API_KEY
+ENV NEXT_PUBLIC_GEMINI_API_KEY=$NEXT_PUBLIC_GEMINI_API_KEY
+
 COPY . .
 RUN npm run build
 

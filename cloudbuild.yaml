@@ -1,0 +1,14 @@
+# Build image with optional NEXT_PUBLIC_GEMINI_API_KEY (inlined into client at build time).
+# Pass via: --substitutions=_IMAGE=...,_NEXT_PUBLIC_GEMINI_API_KEY=...
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_GEMINI_API_KEY=${_NEXT_PUBLIC_GEMINI_API_KEY}'
+      - '-t'
+      - '${_IMAGE}'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE}']
+images: ['${_IMAGE}']

@@ -246,20 +246,20 @@ export function attachVoiceWs(server, path = '/voice-ws') {
   console.log(`[Voice WS] Listening on path ${path}`)
 
   wss.on('connection', async (attendeeWs) => {
-  let audioFromAttendeeCount = 0
-  let audioToAttendeeCount = 0
-  console.log('[Voice WS] Attendee connected')
-  let geminiSession = null
-  let currentBotId = null
+    let audioFromAttendeeCount = 0
+    let audioToAttendeeCount = 0
+    console.log('[Voice WS] Attendee connected')
+    let geminiSession = null
+    let currentBotId = null
 
-  try {
-    const ai = new GoogleGenAI({ apiKey })
-    // Use 09-2025 for stability; 12-2025 often closes with 1008 "Operation is not implemented" (see googleapis/js-genai#1236)
-    geminiSession = await ai.live.connect({
-      model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
+    try {
+      const ai = new GoogleGenAI({ apiKey })
+      // Use 09-2025 for stability; 12-2025 often closes with 1008 "Operation is not implemented" (see googleapis/js-genai#1236)
+      geminiSession = await ai.live.connect({
+        model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
 
 CRITICAL - Links and chat: Never read links or URLs out loud. When you have a link (e.g. from Jira, Drive, or search results), say briefly that you added it in chat or they can check the chat—do not spell out the URL. Do not repeat what you just posted to chat unless the user explicitly asks.
 
@@ -282,219 +282,219 @@ CRITICAL - Creating Jira tickets: When the user asks to create a ticket:
 - Only ask "What should the title be?" when they give no title and do not ask for dummy/example content. Do not set or ask for assignee.
 
 CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a structured summary. (2) For Drive: use create_meeting_minutes. You may do both if they ask. Say you added the link in chat—do not read the URL.`,
-        tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool],
-        functionCallingConfig: {
-          mode: 'AUTO',
-          allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira'],
+          tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool],
+          functionCallingConfig: {
+            mode: 'AUTO',
+            allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira'],
+          },
         },
-      },
-      callbacks: {
-        onopen: () => console.log('[Voice WS] Gemini Live connected'),
-        onmessage: async (e) => {
-          try {
-            // Tool calls come in e.toolCall.functionCalls (same as gemini-live reference), NOT in modelTurn.parts
-            if (e.toolCall?.functionCalls?.length) {
-              console.log('[TOOL] toolCall.functionCalls:', e.toolCall.functionCalls.length)
-              for (const fc of e.toolCall.functionCalls) {
-                console.log('[TOOL] functionCall:', fc.name, fc.id, fc.args)
-                if (fc.name === 'search_drive' && geminiSession) {
-                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
-                  if (!query) {
-                    console.log('[TOOL] search_drive skipped: no query in args')
-                    continue
-                  }
-                  console.log('[TOOL] Executing search_drive, query:', query)
-                  let result
-                  try {
-                    result = await callDriveSearch(query)
-                  } catch (err) {
-                    console.error('[TOOL] callDriveSearch error:', err?.message ?? err)
-                    result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
-                  }
-                  geminiSession.sendToolResponse({
-                    functionResponses: [{
-                      id: fc.id,
-                      name: 'search_drive',
-                      response: result,
-                    }],
-                  })
-                  console.log('[TOOL] sendToolResponse done')
-                  if (result.details) {
-                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
-                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
-                  }
-                } else if (fc.name === 'search_jira' && geminiSession) {
-                  console.log('[Voice WS] search_jira tool invoked')
-                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
-                  if (!query) {
-                    console.log('[TOOL] search_jira skipped: no query in args')
-                    continue
-                  }
-                  console.log('[TOOL] Executing search_jira, query:', query)
-                  let result
-                  try {
-                    result = await callJiraSearch(query)
-                  } catch (err) {
-                    console.error('[TOOL] callJiraSearch error:', err?.message ?? err)
-                    result = { answer: 'Jira search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
-                  }
-                  geminiSession.sendToolResponse({
-                    functionResponses: [{
-                      id: fc.id,
-                      name: 'search_jira',
-                      response: result,
-                    }],
-                  })
-                  console.log('[TOOL] sendToolResponse done (jira), result.details length:', (result.details && String(result.details).length) ?? 0)
-                  const jiraChatMessage = (result.details && String(result.details).trim()) || (result.answer ? `${result.answer}${result.link ? '\n' + result.link : ''}` : '') || 'Jira search completed.'
-                  if (currentBotId) await sendMeetingChat(currentBotId, jiraChatMessage)
-                  const payload = JSON.stringify({ trigger: 'send_chat', data: { message: jiraChatMessage } })
-                  attendeeWs.send(payload)
-                  console.log('[Voice WS] Sent send_chat to bot (Jira), message length:', jiraChatMessage.length)
-                } else if (fc.name === 'write_to_chat' && geminiSession) {
-                  const message = (fc.args?.message != null ? String(fc.args.message) : '').trim()
-                  if (!message) {
-                    console.log('[TOOL] write_to_chat skipped: no message in args')
+        callbacks: {
+          onopen: () => console.log('[Voice WS] Gemini Live connected'),
+          onmessage: async (e) => {
+            try {
+              // Tool calls come in e.toolCall.functionCalls (same as gemini-live reference), NOT in modelTurn.parts
+              if (e.toolCall?.functionCalls?.length) {
+                console.log('[TOOL] toolCall.functionCalls:', e.toolCall.functionCalls.length)
+                for (const fc of e.toolCall.functionCalls) {
+                  console.log('[TOOL] functionCall:', fc.name, fc.id, fc.args)
+                  if (fc.name === 'search_drive' && geminiSession) {
+                    const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                    if (!query) {
+                      console.log('[TOOL] search_drive skipped: no query in args')
+                      continue
+                    }
+                    console.log('[TOOL] Executing search_drive, query:', query)
+                    let result
+                    try {
+                      result = await callDriveSearch(query)
+                    } catch (err) {
+                      console.error('[TOOL] callDriveSearch error:', err?.message ?? err)
+                      result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                    }
                     geminiSession.sendToolResponse({
-                      functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: false, error: 'No message provided' } }],
+                      functionResponses: [{
+                        id: fc.id,
+                        name: 'search_drive',
+                        response: result,
+                      }],
                     })
-                    continue
-                  }
-                  console.log('[TOOL] write_to_chat:', message.slice(0, 80) + (message.length > 80 ? '...' : ''))
-                  if (currentBotId) await sendMeetingChat(currentBotId, message)
-                  attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message } }))
-                  geminiSession.sendToolResponse({
-                    functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
-                  })
-                  console.log('[TOOL] write_to_chat done')
-                } else if (fc.name === 'create_meeting_minutes' && geminiSession) {
-                  const summary = (fc.args?.summary != null ? String(fc.args.summary) : '').trim()
-                  if (!summary) {
+                    console.log('[TOOL] sendToolResponse done')
+                    if (result.details) {
+                      if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                      attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                    }
+                  } else if (fc.name === 'search_jira' && geminiSession) {
+                    console.log('[Voice WS] search_jira tool invoked')
+                    const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                    if (!query) {
+                      console.log('[TOOL] search_jira skipped: no query in args')
+                      continue
+                    }
+                    console.log('[TOOL] Executing search_jira, query:', query)
+                    let result
+                    try {
+                      result = await callJiraSearch(query)
+                    } catch (err) {
+                      console.error('[TOOL] callJiraSearch error:', err?.message ?? err)
+                      result = { answer: 'Jira search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                    }
                     geminiSession.sendToolResponse({
-                      functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: { success: false, error: 'Summary is required for meeting minutes.' } }],
+                      functionResponses: [{
+                        id: fc.id,
+                        name: 'search_jira',
+                        response: result,
+                      }],
                     })
-                    continue
-                  }
-                  const keyPoints = (fc.args?.keyPoints != null ? String(fc.args.keyPoints) : '').trim() || undefined
-                  const actionItems = (fc.args?.actionItems != null ? String(fc.args.actionItems) : '').trim() || undefined
-                  const additionalNotes = (fc.args?.additionalNotes != null ? String(fc.args.additionalNotes) : '').trim() || undefined
-                  let result
-                  try {
-                    result = await callCreateMeetingMinutes(summary, keyPoints, actionItems, additionalNotes)
-                    result = { success: true, ...result, details: `Meeting minutes saved to Drive.\nFile: ${result.name}\nLink: ${result.link}` }
-                  } catch (err) {
-                    console.error('[TOOL] callCreateMeetingMinutes error:', err?.message ?? err)
-                    result = { success: false, error: err?.message || 'Failed to save meeting minutes to Drive.', details: '' }
-                  }
-                  geminiSession.sendToolResponse({
-                    functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: result }],
-                  })
-                  if (result.details) {
-                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
-                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
-                  }
-                  console.log('[TOOL] create_meeting_minutes done')
-                } else if (fc.name === 'create_jira' && geminiSession) {
-                  const title = (fc.args?.title != null ? String(fc.args.title) : '').trim()
-                  if (!title) {
+                    console.log('[TOOL] sendToolResponse done (jira), result.details length:', (result.details && String(result.details).length) ?? 0)
+                    const jiraChatMessage = (result.details && String(result.details).trim()) || (result.answer ? `${result.answer}${result.link ? '\n' + result.link : ''}` : '') || 'Jira search completed.'
+                    if (currentBotId) await sendMeetingChat(currentBotId, jiraChatMessage)
+                    const payload = JSON.stringify({ trigger: 'send_chat', data: { message: jiraChatMessage } })
+                    attendeeWs.send(payload)
+                    console.log('[Voice WS] Sent send_chat to bot (Jira), message length:', jiraChatMessage.length)
+                  } else if (fc.name === 'write_to_chat' && geminiSession) {
+                    const message = (fc.args?.message != null ? String(fc.args.message) : '').trim()
+                    if (!message) {
+                      console.log('[TOOL] write_to_chat skipped: no message in args')
+                      geminiSession.sendToolResponse({
+                        functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: false, error: 'No message provided' } }],
+                      })
+                      continue
+                    }
+                    console.log('[TOOL] write_to_chat:', message.slice(0, 80) + (message.length > 80 ? '...' : ''))
+                    if (currentBotId) await sendMeetingChat(currentBotId, message)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message } }))
                     geminiSession.sendToolResponse({
-                      functionResponses: [{ id: fc.id, name: 'create_jira', response: { success: false, error: 'Title is required. Ask the user for a title.' } }],
+                      functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
                     })
-                    continue
-                  }
-                  const parentKey = (fc.args?.parentKey != null ? String(fc.args.parentKey) : '').trim() || undefined
-                  const description = (fc.args?.description != null ? String(fc.args.description) : '').trim() || undefined
-                  const projectKey = (fc.args?.projectKey != null ? String(fc.args.projectKey) : '').trim() || undefined
-                  const boardId = (fc.args?.boardId != null ? String(fc.args.boardId) : '').trim() || undefined
-                  let result
-                  try {
-                    result = await callJiraCreate(title, parentKey, description, projectKey, boardId)
-                    result = { success: true, ...result, details: `Created: ${result.key} – ${result.summary}\nStatus: ${result.status}\nLink: ${result.link}` }
-                  } catch (err) {
-                    console.error('[TOOL] callJiraCreate error:', err?.message ?? err)
-                    result = { success: false, error: err?.message || 'Failed to create Jira ticket.', details: '' }
-                  }
-                  geminiSession.sendToolResponse({
-                    functionResponses: [{ id: fc.id, name: 'create_jira', response: result }],
-                  })
-                  if (result.details) {
-                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
-                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
-                  }
-                  console.log('[TOOL] create_jira done')
-                }
-              }
-            }
-            const sc = e?.serverContent
-            const parts = sc?.modelTurn?.parts
-            if (Array.isArray(parts)) {
-              for (const part of parts) {
-                const inlineData = part?.inlineData ?? part?.inline_data
-                if (inlineData?.data) {
-                  const base64 = inlineData.data
-                  attendeeWs.send(JSON.stringify({
-                    trigger: 'realtime_audio.bot_output',
-                    data: { chunk: base64, sample_rate: 24000 },
-                  }))
-                  audioToAttendeeCount++
-                  if (audioToAttendeeCount <= 3 || audioToAttendeeCount % 20 === 0) {
-                    console.log('[Voice WS] Sent audio to meeting:', audioToAttendeeCount)
+                    console.log('[TOOL] write_to_chat done')
+                  } else if (fc.name === 'create_meeting_minutes' && geminiSession) {
+                    const summary = (fc.args?.summary != null ? String(fc.args.summary) : '').trim()
+                    if (!summary) {
+                      geminiSession.sendToolResponse({
+                        functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: { success: false, error: 'Summary is required for meeting minutes.' } }],
+                      })
+                      continue
+                    }
+                    const keyPoints = (fc.args?.keyPoints != null ? String(fc.args.keyPoints) : '').trim() || undefined
+                    const actionItems = (fc.args?.actionItems != null ? String(fc.args.actionItems) : '').trim() || undefined
+                    const additionalNotes = (fc.args?.additionalNotes != null ? String(fc.args.additionalNotes) : '').trim() || undefined
+                    let result
+                    try {
+                      result = await callCreateMeetingMinutes(summary, keyPoints, actionItems, additionalNotes)
+                      result = { success: true, ...result, details: `Meeting minutes saved to Drive.\nFile: ${result.name}\nLink: ${result.link}` }
+                    } catch (err) {
+                      console.error('[TOOL] callCreateMeetingMinutes error:', err?.message ?? err)
+                      result = { success: false, error: err?.message || 'Failed to save meeting minutes to Drive.', details: '' }
+                    }
+                    geminiSession.sendToolResponse({
+                      functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: result }],
+                    })
+                    if (result.details) {
+                      if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                      attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                    }
+                    console.log('[TOOL] create_meeting_minutes done')
+                  } else if (fc.name === 'create_jira' && geminiSession) {
+                    const title = (fc.args?.title != null ? String(fc.args.title) : '').trim()
+                    if (!title) {
+                      geminiSession.sendToolResponse({
+                        functionResponses: [{ id: fc.id, name: 'create_jira', response: { success: false, error: 'Title is required. Ask the user for a title.' } }],
+                      })
+                      continue
+                    }
+                    const parentKey = (fc.args?.parentKey != null ? String(fc.args.parentKey) : '').trim() || undefined
+                    const description = (fc.args?.description != null ? String(fc.args.description) : '').trim() || undefined
+                    const projectKey = (fc.args?.projectKey != null ? String(fc.args.projectKey) : '').trim() || undefined
+                    const boardId = (fc.args?.boardId != null ? String(fc.args.boardId) : '').trim() || undefined
+                    let result
+                    try {
+                      result = await callJiraCreate(title, parentKey, description, projectKey, boardId)
+                      result = { success: true, ...result, details: `Created: ${result.key} – ${result.summary}\nStatus: ${result.status}\nLink: ${result.link}` }
+                    } catch (err) {
+                      console.error('[TOOL] callJiraCreate error:', err?.message ?? err)
+                      result = { success: false, error: err?.message || 'Failed to create Jira ticket.', details: '' }
+                    }
+                    geminiSession.sendToolResponse({
+                      functionResponses: [{ id: fc.id, name: 'create_jira', response: result }],
+                    })
+                    if (result.details) {
+                      if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                      attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                    }
+                    console.log('[TOOL] create_jira done')
                   }
                 }
               }
+              const sc = e?.serverContent
+              const parts = sc?.modelTurn?.parts
+              if (Array.isArray(parts)) {
+                for (const part of parts) {
+                  const inlineData = part?.inlineData ?? part?.inline_data
+                  if (inlineData?.data) {
+                    const base64 = inlineData.data
+                    attendeeWs.send(JSON.stringify({
+                      trigger: 'realtime_audio.bot_output',
+                      data: { chunk: base64, sample_rate: 24000 },
+                    }))
+                    audioToAttendeeCount++
+                    if (audioToAttendeeCount <= 3 || audioToAttendeeCount % 20 === 0) {
+                      console.log('[Voice WS] Sent audio to meeting:', audioToAttendeeCount)
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('[Voice WS] Gemini onmessage error:', err)
             }
-          } catch (err) {
-            console.error('[Voice WS] Gemini onmessage error:', err)
-          }
+          },
+          onerror: (err) => console.error('[Voice WS] Gemini error:', err?.message ?? err),
+          onclose: (e) => {
+            const code = e?.code
+            const reason = e?.reason ?? ''
+            console.log('[Voice WS] Gemini closed', code, reason)
+            if (code === 1008) {
+              console.warn('[Voice WS] 1008 = policy/unsupported. Try GEMINI_LIVE_MODEL=gemini-2.5-flash-native-audio-preview-09-2025 or unset GEMINI_LIVE_MODEL, then reconnect.')
+            } else if (code === 1011) {
+              console.warn('[Voice WS] 1011 = server inference failed (Gemini backend error). Often transient—reconnect the bot (e.g. relaunch minimal bot or rejoin meeting) to retry.')
+            }
+          },
         },
-        onerror: (err) => console.error('[Voice WS] Gemini error:', err?.message ?? err),
-        onclose: (e) => {
-          const code = e?.code
-          const reason = e?.reason ?? ''
-          console.log('[Voice WS] Gemini closed', code, reason)
-          if (code === 1008) {
-            console.warn('[Voice WS] 1008 = policy/unsupported. Try GEMINI_LIVE_MODEL=gemini-2.5-flash-native-audio-preview-09-2025 or unset GEMINI_LIVE_MODEL, then reconnect.')
-          } else if (code === 1011) {
-            console.warn('[Voice WS] 1011 = server inference failed (Gemini backend error). Often transient—reconnect the bot (e.g. relaunch minimal bot or rejoin meeting) to retry.')
-          }
-        },
-      },
-    })
-  } catch (err) {
-    console.error('[Voice WS] Failed to connect to Gemini:', err)
-    attendeeWs.close()
-    return
-  }
-
-  attendeeWs.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw.toString())
-      if (msg.bot_id) currentBotId = msg.bot_id
-      if (msg.data?.bot_id) currentBotId = msg.data.bot_id
-      if (msg.trigger === 'realtime_audio.mixed' && msg.data?.chunk && geminiSession) {
-        const pcmBase64 = msg.data.chunk
-        geminiSession.sendRealtimeInput({
-          audio: { data: pcmBase64, mimeType: 'audio/pcm;rate=16000' },
-        })
-        audioFromAttendeeCount++
-        if (audioFromAttendeeCount <= 3 || audioFromAttendeeCount % 100 === 0) {
-          console.log('[Voice WS] Received meeting audio:', audioFromAttendeeCount)
-        }
-      }
+      })
     } catch (err) {
-      console.error('[Voice WS] Attendee message error:', err)
+      console.error('[Voice WS] Failed to connect to Gemini:', err)
+      attendeeWs.close()
+      return
     }
-  })
 
-  attendeeWs.on('close', () => {
-    if (geminiSession) {
+    attendeeWs.on('message', (raw) => {
       try {
-        geminiSession.close()
-      } catch (_) { }
-      geminiSession = null
-    }
-    console.log('[Voice WS] Attendee disconnected (received', audioFromAttendeeCount, 'audio, sent', audioToAttendeeCount, ')')
-  })
+        const msg = JSON.parse(raw.toString())
+        if (msg.bot_id) currentBotId = msg.bot_id
+        if (msg.data?.bot_id) currentBotId = msg.data.bot_id
+        if (msg.trigger === 'realtime_audio.mixed' && msg.data?.chunk && geminiSession) {
+          const pcmBase64 = msg.data.chunk
+          geminiSession.sendRealtimeInput({
+            audio: { data: pcmBase64, mimeType: 'audio/pcm;rate=16000' },
+          })
+          audioFromAttendeeCount++
+          if (audioFromAttendeeCount <= 3 || audioFromAttendeeCount % 100 === 0) {
+            console.log('[Voice WS] Received meeting audio:', audioFromAttendeeCount)
+          }
+        }
+      } catch (err) {
+        console.error('[Voice WS] Attendee message error:', err)
+      }
+    })
+
+    attendeeWs.on('close', () => {
+      if (geminiSession) {
+        try {
+          geminiSession.close()
+        } catch (_) { }
+        geminiSession = null
+      }
+      console.log('[Voice WS] Attendee disconnected (received', audioFromAttendeeCount, 'audio, sent', audioToAttendeeCount, ')')
+    })
   })
 
   return wss
