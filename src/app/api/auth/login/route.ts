@@ -11,7 +11,8 @@ function sign(value: string, secret: string): string {
 }
 
 export async function POST(request: Request) {
-  const loginKey = process.env.LOGIN_API_KEY?.trim()
+  // Dynamic key so Next.js doesn't inline at build time (Cloud Run sets this at runtime)
+  const loginKey = (process.env['LOGIN_API_KEY'] ?? '').trim()
   if (!loginKey) {
     return NextResponse.json({ success: false }, { status: 400 })
   }
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
   const cookieStore = await cookies()
   cookieStore.set(COOKIE_NAME, value, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env['NODE_ENV'] === 'production',
     sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE,
     path: '/',

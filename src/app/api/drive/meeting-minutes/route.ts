@@ -3,7 +3,7 @@ import { google } from 'googleapis'
 import { getAuthenticatedClient } from '@/lib/google-auth'
 import { randomInt } from 'crypto'
 
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID
+const getDriveFolderId = () => process.env['DRIVE_FOLDER_ID']
 
 function getDocId(): string {
   return String(randomInt(100000, 999999))
@@ -76,7 +76,7 @@ async function getOrCreateMeetingsFolder(
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.DRIVE_SEARCH_SECRET
+  const secret = process.env['DRIVE_SEARCH_SECRET']
   if (secret) {
     const header = request.headers.get('x-drive-search-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
     if (header !== secret) {
@@ -84,7 +84,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!DRIVE_FOLDER_ID) {
+  const driveFolderId = getDriveFolderId()
+  if (!driveFolderId) {
     return NextResponse.json({ error: 'DRIVE_FOLDER_ID not configured' }, { status: 500 })
   }
 
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const drive = google.drive({ version: 'v3', auth })
-    const meetingsFolderId = await getOrCreateMeetingsFolder(drive, DRIVE_FOLDER_ID)
+    const meetingsFolderId = await getOrCreateMeetingsFolder(drive, driveFolderId)
     const dateStr = formatDate()
     const documentId = getDocId()
     const fileName = `${dateStr}_${documentId}.txt`

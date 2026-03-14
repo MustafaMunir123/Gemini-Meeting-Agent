@@ -9,25 +9,29 @@ Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a mee
 1. Launch your own private instance of the app to Google Cloud in just one click. No local setup required.
 
    [![Run on Google Cloud](./run-on-google-cloud.png)](https://console.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/MustafaMunir123/Gemini-Meeting-Agent&cloudshell_script=scripts/one-click-deploy.sh)
-2. In [Cloud Run](https://console.cloud.google.com/run) → your service → **Edit & deploy** → **Variables & secrets**, add:
+2. In [Cloud Run](https://console.cloud.google.com/run) → your service → **Edit & deploy** → **Variables & secrets**, add each variable by **name** and **value** (the container does not use a `.env` file; only these service env vars are used):
 
 ```
 NEXT_PUBLIC_GEMINI_API_KEY=
 ZOOM_CLIENT_ID=
 ZOOM_CLIENT_SECRET=
+APP_URL=https://your-service-xxx.run.app   # set to your service URL if you use the meeting bot
 
-#Optional — Google Drive
+# Optional — access key gate (if set, app shows key entry before main UI)
+LOGIN_API_KEY=your_secret_key
+
+# Optional — Google Drive
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 DRIVE_FOLDER_ID=
 
-#Optional — Jira
+# Optional — Jira
 JIRA_API_KEY=
 JIRA_BASE_URL=
 JIRA_EMAIL=
 ```
 
-Set `APP_URL` to your service URL if you use the meeting bot.
+Deploy a **new revision** after changing variables so they take effect.
 
 ### Local
 

@@ -187,7 +187,7 @@
         done = true
         onRecordingPermissionGranted()
       },
-      error: () => {},
+      error: () => { },
     })
     return done
   }
@@ -234,7 +234,7 @@
                 if (!recordingPermissionGranted) onRecordingPermissionGranted()
                 clearInterval(retryInterval)
               },
-              error: () => {},
+              error: () => { },
             })
           }, 3000)
         },
@@ -286,7 +286,7 @@
               error: (e) => console.warn('[Bot] sendChat error', e),
             })
           }
-        } catch (_) {}
+        } catch (_) { }
       }
     }
     sendJson(data) {

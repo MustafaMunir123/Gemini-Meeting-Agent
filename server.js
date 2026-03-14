@@ -18,14 +18,14 @@ const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
 let ready = false
+const requestQueue = []
 
 const server = http.createServer(async (req, res) => {
+  const parsedUrl = parse(req.url, true)
   if (!ready) {
-    res.writeHead(503, { 'Content-Type': 'text/plain' })
-    res.end('Starting up...')
+    requestQueue.push({ req, res, parsedUrl })
     return
   }
-  const parsedUrl = parse(req.url, true)
   await handle(req, res, parsedUrl)
 })
 
@@ -40,6 +40,13 @@ app.prepare()
     const { attachVoiceWs } = await import('./scripts/voice-ws-server.mjs')
     attachVoiceWs(server, voiceWsPath)
     ready = true
+    while (requestQueue.length > 0) {
+      const { req, res, parsedUrl } = requestQueue.shift()
+      handle(req, res, parsedUrl).catch((err) => {
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' })
+        res.end(String(err?.message || err))
+      })
+    }
     console.log(`> Ready on http://${listenHost}:${port}`)
     console.log(`> Voice WebSocket on ws://${listenHost}:${port}${voiceWsPath}`)
   })

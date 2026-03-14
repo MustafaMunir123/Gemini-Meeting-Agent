@@ -18,8 +18,8 @@ const SCOPES = [
 ]
 
 export function getOAuth2Client() {
-  const clientId = process.env.GOOGLE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  const clientId = process.env['GOOGLE_CLIENT_ID']
+  const clientSecret = process.env['GOOGLE_CLIENT_SECRET']
   if (!clientId || !clientSecret) {
     throw new Error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET')
   }
@@ -30,12 +30,18 @@ export function getOAuth2Client() {
   )
 }
 
-export function getRedirectUri(): string {
-  const base =
-    process.env.NEXTAUTH_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+/** Canonical app base URL (no trailing slash). Use for redirects so Cloud Run doesn't redirect to localhost. */
+export function getAppBaseUrl(): string {
+  const raw =
+    process.env['NEXTAUTH_URL'] ||
+    (process.env['APP_URL'] ? String(process.env['APP_URL']).replace(/\/$/, '') : null) ||
+    (process.env['VERCEL_URL'] ? `https://${process.env['VERCEL_URL']}` : null) ||
     'http://localhost:3000'
-  return `${base}/api/auth/google/callback`
+  return raw.replace(/\/$/, '')
+}
+
+export function getRedirectUri(): string {
+  return `${getAppBaseUrl()}/api/auth/google/callback`
 }
 
 export function getAuthUrl(): string {
