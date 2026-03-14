@@ -2,6 +2,14 @@
 
 Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a meeting; it streams audio to the agent and plays replies back.
 
+## Architecture
+
+[![Gemini Sidekick architecture & demo](https://img.youtube.com/vi/6GTauXJC1Vo/hqdefault.jpg)](https://youtu.be/6GTauXJC1Vo?si=r476G_StG3HtN1_g)
+
+**▶ [Watch architecture walkthrough & demo](https://youtu.be/6GTauXJC1Vo?si=r476G_StG3HtN1_g)**
+
+The Gemini Live agent joins the meeting, streams audio over WebSocket, and uses tools (search Drive, search Jira, add to chat, meeting minutes, create Jira tickets) backed by Google Drive and Jira. The app runs on **Cloud Run** (service + bot).
+
 ## Setup
 
 ### One-click deploy (Cloud Run)

@@ -19,6 +19,33 @@ const jiraSearchSecret = process.env.JIRA_SEARCH_SECRET || ''
 const attendeeBase = process.env.ATTENDEE_API_BASE_URL || ''
 const attendeeToken = process.env.ATTENDEE_API_KEY || ''
 
+// Wake words: only forward bot audio/chat when user's transcript contains one of these (case-insensitive).
+const WAKE_WORDS = (process.env.WAKE_WORDS || 'gemini,sidekick,assistant,bot')
+  .split(',')
+  .map((w) => w.trim().toLowerCase())
+  .filter(Boolean)
+const botName = (process.env.ZOOM_BOT_NAME || 'Gemini Sidekick').trim()
+if (botName) {
+  botName.split(/\s+/).forEach((w) => {
+    const lower = w.toLowerCase()
+    if (lower && !WAKE_WORDS.includes(lower)) WAKE_WORDS.push(lower)
+  })
+}
+if (WAKE_WORDS.length === 0) WAKE_WORDS.push('gemini', 'sidekick', 'assistant', 'bot')
+
+function wakeWordPresent(transcript) {
+  if (!transcript || typeof transcript !== 'string') return false
+  const t = transcript.trim().toLowerCase()
+  if (!t) return false
+  return WAKE_WORDS.some((w) => t.includes(w))
+}
+
+// Allow response (audio/chat) when we have no transcript yet (API may not send it or sends late) OR when transcript contains wake word. Block only when we have transcript without wake word.
+function shouldAllowResponse(transcript) {
+  if (!transcript || typeof transcript !== 'string' || transcript.trim() === '') return true
+  return wakeWordPresent(transcript)
+}
+
 if (!apiKey) {
   console.error('Set NEXT_PUBLIC_GEMINI_API_KEY or GEMINI_API_KEY in .env')
   process.exit(1)
@@ -28,7 +55,7 @@ const searchDriveTool = {
   functionDeclarations: [
     {
       name: 'search_drive',
-      description: 'Search the shared Google Drive folder for documents related to the user\'s question. Use when someone asks to check drive, find documents about a topic, or anything related to files in Drive. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
+      description: 'Search the shared Google Drive folder for documents related to the user\'s question. Use when someone asks to check drive, find documents about a topic, or anything related to files in Drive. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -47,7 +74,7 @@ const searchJiraTool = {
   functionDeclarations: [
     {
       name: 'search_jira',
-      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Read-only. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
+      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Read-only. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -66,7 +93,7 @@ const writeToChatTool = {
   functionDeclarations: [
     {
       name: 'write_to_chat',
-      description: 'Write a message to the meeting chat so all participants can see it. Use whenever the user asks to: add something to chat; put text in chat; post to chat; "add to chat"; "add that to chat"; write in chat; or share something in the chat. Include: meeting summaries or minutes, any text they want in chat, search result summaries, or your own composed message. Call this tool with the exact text to post—do not refuse. The system will send it to the meeting chat.',
+      description: 'Write a message to the meeting chat so all participants can see it. Use whenever the user asks to: add something to chat; put text in chat; post to chat; "add to chat"; "add that to chat"; write in chat; or share something in the chat. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Include: meeting summaries or minutes, any text they want in chat, search result summaries, or your own composed message. Call this tool with the exact text to post—do not refuse. The system will send it to the meeting chat.',
       parameters: {
         type: 'object',
         properties: {
@@ -85,7 +112,7 @@ const createMeetingMinutesTool = {
   functionDeclarations: [
     {
       name: 'create_meeting_minutes',
-      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. File name is auto-generated (date + ID). Use when the user asks to save or upload meeting minutes to Drive. Compose summary, key points, action items from the conversation—or use reasonable placeholder content if they say "assume" or "use dummy content". Do not refuse to generate example minutes.',
+      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. File name is auto-generated (date + ID). Use when the user asks to save or upload meeting minutes to Drive. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Compose summary, key points, action items from the conversation—or use reasonable placeholder content if they say "assume" or "use dummy content". Do not refuse to generate example minutes.',
       parameters: {
         type: 'object',
         properties: {
@@ -116,7 +143,7 @@ const createJiraTool = {
   functionDeclarations: [
     {
       name: 'create_jira',
-      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. The user can say: project key, board ID, parent ticket. If the user asks you to "use a dummy title", "assume a title", "make up an example", or "use placeholder text", generate a reasonable example (e.g. "Demo: Implement login flow") and call the tool—do not refuse. Only ask for a title when they give no hint and do not ask for dummy/example content.',
+      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. The user can say: project key, board ID, parent ticket. If the user asks you to "use a dummy title", "assume a title", "make up an example", or "use placeholder text", generate a reasonable example (e.g. "Demo: Implement login flow") and call the tool—do not refuse. Only ask for a title when they give no hint and do not ask for dummy/example content.',
       parameters: {
         type: 'object',
         properties: {
@@ -246,6 +273,7 @@ export function attachVoiceWs(server, path = '/voice-ws') {
   console.log(`[Voice WS] Listening on path ${path}`)
 
   wss.on('connection', async (attendeeWs) => {
+<<<<<<< Updated upstream
     let audioFromAttendeeCount = 0
     let audioToAttendeeCount = 0
     console.log('[Voice WS] Attendee connected')
@@ -260,13 +288,33 @@ export function attachVoiceWs(server, path = '/voice-ws') {
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
+=======
+  let audioFromAttendeeCount = 0
+  let audioToAttendeeCount = 0
+  console.log('[Voice WS] Attendee connected')
+  let geminiSession = null
+  let currentBotId = null
+  let lastInputTranscript = ''
+
+  try {
+    const ai = new GoogleGenAI({ apiKey })
+    // Use 09-2025 for stability; 12-2025 often closes with 1008 "Operation is not implemented" (see googleapis/js-genai#1236)
+    geminiSession = await ai.live.connect({
+      model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
+      inputAudioTranscription: {},
+      config: {
+        responseModalities: [Modality.AUDIO],
+        systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
+>>>>>>> Stashed changes
 
 CRITICAL - Links and chat: Never read links or URLs out loud. When you have a link (e.g. from Jira, Drive, or search results), say briefly that you added it in chat or they can check the chat—do not spell out the URL. Do not repeat what you just posted to chat unless the user explicitly asks.
 
-CRITICAL - When to respond:
-(1) Only START when someone clearly invokes you by name or phrase (e.g. "Hey Gemini", "Gemini", "assistant", "bot") with or before their question.
-(2) During an active exchange, treat follow-ups as directed at you; do not require your name again every message.
-(3) Consider the exchange over when they say thanks/goodbye, address someone else, or there is a long pause and others are talking. If in doubt, stay silent.
+CRITICAL - When to respond (STRICT - no exceptions):
+(1) ONLY respond when the user EXPLICITLY says your name or a direct wake phrase IN THE SAME MESSAGE. Accepted: "Gemini", "Gemini Sidekick", "Hey Gemini", "Sidekick", "assistant", "bot" — must appear in what they just said.
+(2) FOLLOW-UPS ARE NOT EXCEPTIONS: Even if they are clearly continuing the same conversation or asking a follow-up question, you must NOT respond unless they say your name (e.g. "Gemini") in that same message. "What about X?", "And the second one?", "Tell me more" — all require "Gemini" (or another wake phrase) in that message, or you stay silent.
+(3) If they did NOT say your name or wake phrase in this message, do NOT respond. Stay completely silent. No answers, no acknowledgments, no reactions — including for any follow-up or continuation.
+(4) After you finish a response, the next user message still requires them to say your name again. Never assume a message is for you without an explicit name/wake in that message.
+(5) If in doubt, stay silent.
 
 CRITICAL - Add to chat / write_to_chat: When the user says "add to chat", "put that in chat", "add that to chat", "post to chat", or "write in chat", call write_to_chat with the content they mean (or that you just spoke/search result summary) immediately. Do not refuse. For Drive and Jira search, the system already posts result details to the meeting chat; after the tool returns, say something like "I've added the results to the chat" so the user knows to look there.
 
@@ -288,6 +336,7 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
             allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira'],
           },
         },
+<<<<<<< Updated upstream
         callbacks: {
           onopen: () => console.log('[Voice WS] Gemini Live connected'),
           onmessage: async (e) => {
@@ -311,6 +360,83 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                       console.error('[TOOL] callDriveSearch error:', err?.message ?? err)
                       result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
                     }
+=======
+      },
+      callbacks: {
+        onopen: () => console.log('[Voice WS] Gemini Live connected'),
+        onmessage: async (e) => {
+          try {
+            const sc = e?.serverContent
+            const inputTrans = sc?.inputTranscription ?? sc?.input_transcription
+            if (inputTrans?.text != null) {
+              lastInputTranscript = String(inputTrans.text).trim()
+            }
+
+            // Tool calls come in e.toolCall.functionCalls (same as gemini-live reference), NOT in modelTurn.parts
+            if (e.toolCall?.functionCalls?.length) {
+              console.log('[TOOL] toolCall.functionCalls:', e.toolCall.functionCalls.length)
+              for (const fc of e.toolCall.functionCalls) {
+                console.log('[TOOL] functionCall:', fc.name, fc.id, fc.args)
+                if (fc.name === 'search_drive' && geminiSession) {
+                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                  if (!query) {
+                    console.log('[TOOL] search_drive skipped: no query in args')
+                    continue
+                  }
+                  console.log('[TOOL] Executing search_drive, query:', query)
+                  let result
+                  try {
+                    result = await callDriveSearch(query)
+                  } catch (err) {
+                    console.error('[TOOL] callDriveSearch error:', err?.message ?? err)
+                    result = { answer: 'Drive search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{
+                      id: fc.id,
+                      name: 'search_drive',
+                      response: result,
+                    }],
+                  })
+                  console.log('[TOOL] sendToolResponse done')
+                  if (result.details && shouldAllowResponse(lastInputTranscript)) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                  }
+                } else if (fc.name === 'search_jira' && geminiSession) {
+                  console.log('[Voice WS] search_jira tool invoked')
+                  const query = (fc.args?.query != null ? String(fc.args.query) : '').trim()
+                  if (!query) {
+                    console.log('[TOOL] search_jira skipped: no query in args')
+                    continue
+                  }
+                  console.log('[TOOL] Executing search_jira, query:', query)
+                  let result
+                  try {
+                    result = await callJiraSearch(query)
+                  } catch (err) {
+                    console.error('[TOOL] callJiraSearch error:', err?.message ?? err)
+                    result = { answer: 'Jira search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{
+                      id: fc.id,
+                      name: 'search_jira',
+                      response: result,
+                    }],
+                  })
+                  console.log('[TOOL] sendToolResponse done (jira), result.details length:', (result.details && String(result.details).length) ?? 0)
+                  const jiraChatMessage = (result.details && String(result.details).trim()) || (result.answer ? `${result.answer}${result.link ? '\n' + result.link : ''}` : '') || 'Jira search completed.'
+                  if (shouldAllowResponse(lastInputTranscript)) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, jiraChatMessage)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: jiraChatMessage } }))
+                  }
+                  console.log('[Voice WS] Sent send_chat to bot (Jira), message length:', jiraChatMessage.length)
+                } else if (fc.name === 'write_to_chat' && geminiSession) {
+                  const message = (fc.args?.message != null ? String(fc.args.message) : '').trim()
+                  if (!message) {
+                    console.log('[TOOL] write_to_chat skipped: no message in args')
+>>>>>>> Stashed changes
                     geminiSession.sendToolResponse({
                       functionResponses: [{
                         id: fc.id,
@@ -318,6 +444,7 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                         response: result,
                       }],
                     })
+<<<<<<< Updated upstream
                     console.log('[TOOL] sendToolResponse done')
                     if (result.details) {
                       if (currentBotId) await sendMeetingChat(currentBotId, result.details)
@@ -338,6 +465,22 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                       console.error('[TOOL] callJiraSearch error:', err?.message ?? err)
                       result = { answer: 'Jira search failed. ' + (err?.message || 'Please try again.'), link: '', details: '' }
                     }
+=======
+                    continue
+                  }
+                  console.log('[TOOL] write_to_chat:', message.slice(0, 80) + (message.length > 80 ? '...' : ''))
+                  if (shouldAllowResponse(lastInputTranscript)) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, message)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message } }))
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
+                  })
+                  console.log('[TOOL] write_to_chat done')
+                } else if (fc.name === 'create_meeting_minutes' && geminiSession) {
+                  const summary = (fc.args?.summary != null ? String(fc.args.summary) : '').trim()
+                  if (!summary) {
+>>>>>>> Stashed changes
                     geminiSession.sendToolResponse({
                       functionResponses: [{
                         id: fc.id,
@@ -345,6 +488,7 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                         response: result,
                       }],
                     })
+<<<<<<< Updated upstream
                     console.log('[TOOL] sendToolResponse done (jira), result.details length:', (result.details && String(result.details).length) ?? 0)
                     const jiraChatMessage = (result.details && String(result.details).trim()) || (result.answer ? `${result.answer}${result.link ? '\n' + result.link : ''}` : '') || 'Jira search completed.'
                     if (currentBotId) await sendMeetingChat(currentBotId, jiraChatMessage)
@@ -363,9 +507,36 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                     console.log('[TOOL] write_to_chat:', message.slice(0, 80) + (message.length > 80 ? '...' : ''))
                     if (currentBotId) await sendMeetingChat(currentBotId, message)
                     attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message } }))
+=======
+                    continue
+                  }
+                  const keyPoints = (fc.args?.keyPoints != null ? String(fc.args.keyPoints) : '').trim() || undefined
+                  const actionItems = (fc.args?.actionItems != null ? String(fc.args.actionItems) : '').trim() || undefined
+                  const additionalNotes = (fc.args?.additionalNotes != null ? String(fc.args.additionalNotes) : '').trim() || undefined
+                  let result
+                  try {
+                    result = await callCreateMeetingMinutes(summary, keyPoints, actionItems, additionalNotes)
+                    result = { success: true, ...result, details: `Meeting minutes saved to Drive.\nFile: ${result.name}\nLink: ${result.link}` }
+                  } catch (err) {
+                    console.error('[TOOL] callCreateMeetingMinutes error:', err?.message ?? err)
+                    result = { success: false, error: err?.message || 'Failed to save meeting minutes to Drive.', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'create_meeting_minutes', response: result }],
+                  })
+                  if (result.details && shouldAllowResponse(lastInputTranscript)) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                  }
+                  console.log('[TOOL] create_meeting_minutes done')
+                } else if (fc.name === 'create_jira' && geminiSession) {
+                  const title = (fc.args?.title != null ? String(fc.args.title) : '').trim()
+                  if (!title) {
+>>>>>>> Stashed changes
                     geminiSession.sendToolResponse({
                       functionResponses: [{ id: fc.id, name: 'write_to_chat', response: { success: true, message: 'Written to meeting chat' } }],
                     })
+<<<<<<< Updated upstream
                     console.log('[TOOL] write_to_chat done')
                   } else if (fc.name === 'create_meeting_minutes' && geminiSession) {
                     const summary = (fc.args?.summary != null ? String(fc.args.summary) : '').trim()
@@ -422,6 +593,46 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                       attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                     }
                     console.log('[TOOL] create_jira done')
+=======
+                    continue
+                  }
+                  const parentKey = (fc.args?.parentKey != null ? String(fc.args.parentKey) : '').trim() || undefined
+                  const description = (fc.args?.description != null ? String(fc.args.description) : '').trim() || undefined
+                  const projectKey = (fc.args?.projectKey != null ? String(fc.args.projectKey) : '').trim() || undefined
+                  const boardId = (fc.args?.boardId != null ? String(fc.args.boardId) : '').trim() || undefined
+                  let result
+                  try {
+                    result = await callJiraCreate(title, parentKey, description, projectKey, boardId)
+                    result = { success: true, ...result, details: `Created: ${result.key} – ${result.summary}\nStatus: ${result.status}\nLink: ${result.link}` }
+                  } catch (err) {
+                    console.error('[TOOL] callJiraCreate error:', err?.message ?? err)
+                    result = { success: false, error: err?.message || 'Failed to create Jira ticket.', details: '' }
+                  }
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{ id: fc.id, name: 'create_jira', response: result }],
+                  })
+                  if (result.details && shouldAllowResponse(lastInputTranscript)) {
+                    if (currentBotId) await sendMeetingChat(currentBotId, result.details)
+                    attendeeWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
+                  }
+                  console.log('[TOOL] create_jira done')
+                }
+              }
+            }
+            const parts = sc?.modelTurn?.parts
+            if (Array.isArray(parts) && shouldAllowResponse(lastInputTranscript)) {
+              for (const part of parts) {
+                const inlineData = part?.inlineData ?? part?.inline_data
+                if (inlineData?.data) {
+                  const base64 = inlineData.data
+                  attendeeWs.send(JSON.stringify({
+                    trigger: 'realtime_audio.bot_output',
+                    data: { chunk: base64, sample_rate: 24000 },
+                  }))
+                  audioToAttendeeCount++
+                  if (audioToAttendeeCount <= 3 || audioToAttendeeCount % 20 === 0) {
+                    console.log('[Voice WS] Sent audio to meeting:', audioToAttendeeCount)
+>>>>>>> Stashed changes
                   }
                 }
               }

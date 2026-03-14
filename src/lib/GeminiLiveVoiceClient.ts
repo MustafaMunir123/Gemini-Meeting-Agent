@@ -7,7 +7,9 @@
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai'
 
 const VOICE_AGENT_SYSTEM =
-  'You are a helpful voice assistant in a Zoom meeting. Keep responses concise and natural. You can answer questions, take notes, or help with tasks. Speak clearly and briefly.'
+  `You are a helpful voice assistant in a Zoom meeting. Keep responses concise and natural.
+
+CRITICAL - When to respond: ONLY respond when the user EXPLICITLY says your name or a wake phrase in the same message (e.g. "Gemini", "Gemini Sidekick", "Hey Gemini", "Sidekick", "assistant", "bot"). Follow-ups are NOT exceptions: even continuations like "What about X?" or "And the second one?" require them to say your name (e.g. "Gemini") in that same message—otherwise stay silent. Every message requires an explicit invocation.`
 
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025'
 const OUTPUT_SAMPLE_RATE = 24000

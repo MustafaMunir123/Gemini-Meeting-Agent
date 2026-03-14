@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# One-click deploy: auth → project → APIs → deploy to Cloud Run.
-# Use as cloudshell_script when opening from "Run on Google Cloud" button.
-
 set -e
 
 echo "=============================================="
@@ -9,7 +6,6 @@ echo "  Gemini Sidekick — Deploy to Cloud Run"
 echo "=============================================="
 echo ""
 
-# 1. Ensure logged in
 echo "Checking Google Cloud login..."
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
   echo "No active account. Running: gcloud auth login"
@@ -18,7 +14,6 @@ fi
 echo "  Logged in as: $(gcloud config get-value account 2>/dev/null)"
 echo ""
 
-# 2. Get project ID (prompt if not set)
 PROJECT_ID="$(gcloud config get-value project 2>/dev/null)"
 if [ -z "$PROJECT_ID" ]; then
   echo "No project set. Your projects:"
@@ -34,7 +29,6 @@ fi
 echo "Using project: $PROJECT_ID"
 echo ""
 
-# 3. Enable required APIs
 echo "Enabling required APIs (Cloud Run, Artifact Registry, Cloud Build)..."
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com --project="$PROJECT_ID" 2>/dev/null || true
 echo "  Done."
