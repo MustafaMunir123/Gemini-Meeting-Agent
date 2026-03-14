@@ -62,7 +62,7 @@ if ! command -v nano &> /dev/null; then
 fi
 nano .env
 
-# 6. Prepare env file for deploy (runtime vars) and extract NEXT_PUBLIC_GEMINI_API_KEY for build
+# 6. Prepare .env.deploy (KEY=VALUE per line, .env format) for runtime env vars
 ENV_FILE_DEPLOY=""
 BUILD_ARG_GEMINI_KEY=""
 if [ -s ".env" ]; then
@@ -70,7 +70,6 @@ if [ -s ".env" ]; then
   if [ -s ".env.deploy" ]; then
     ENV_FILE_DEPLOY=".env.deploy"
   fi
-  # Value after first = (key may contain = in value)
   BUILD_ARG_GEMINI_KEY=$(grep '^NEXT_PUBLIC_GEMINI_API_KEY=' .env 2>/dev/null | sed 's/^NEXT_PUBLIC_GEMINI_API_KEY=//' | sed 's/^["'\'']//;s/["'\'']$//' | tr -d '\n\r')
 fi
 
@@ -100,6 +99,11 @@ echo ""
 
 if [ -n "$ENV_FILE_DEPLOY" ]; then
   echo "Deploying service with env vars from .env file..."
+  ENV_ARGS=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    ENV_ARGS+=(--set-env-vars "$line")
+  done < "$ENV_FILE_DEPLOY"
   gcloud run deploy "$SERVICE_NAME" \
     --image "$DEPLOY_IMAGE" \
     --region "$REGION" \
@@ -107,7 +111,7 @@ if [ -n "$ENV_FILE_DEPLOY" ]; then
     --allow-unauthenticated \
     --timeout 300 \
     --memory 512Mi \
-    --env-vars-file="$ENV_FILE_DEPLOY"
+    "${ENV_ARGS[@]}"
 else
   gcloud run deploy "$SERVICE_NAME" \
     --image "$DEPLOY_IMAGE" \
@@ -130,9 +134,14 @@ fi
 echo "  Service URL is: $SERVICE_URL"
 echo "Redeploying to set APP_URL..."
 
-# Second deploy: same env vars plus APP_URL (--env-vars-file replaces all vars, so we must include everything).
+# Second deploy: same env vars plus APP_URL
 if [ -n "$ENV_FILE_DEPLOY" ]; then
-  echo "APP_URL=$SERVICE_URL" >> "$ENV_FILE_DEPLOY"
+  echo "APP_URL=$SERVICE_URL" >> .env.deploy
+  ENV_ARGS=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    ENV_ARGS+=(--set-env-vars "$line")
+  done < .env.deploy
   gcloud run deploy "$SERVICE_NAME" \
     --image "$DEPLOY_IMAGE" \
     --region "$REGION" \
@@ -140,7 +149,7 @@ if [ -n "$ENV_FILE_DEPLOY" ]; then
     --allow-unauthenticated \
     --timeout 300 \
     --memory 512Mi \
-    --env-vars-file="$ENV_FILE_DEPLOY"
+    "${ENV_ARGS[@]}"
 else
   gcloud run deploy "$SERVICE_NAME" \
     --image "$DEPLOY_IMAGE" \
