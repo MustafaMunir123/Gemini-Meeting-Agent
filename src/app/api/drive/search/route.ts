@@ -79,16 +79,23 @@ function buildDocContext(files: FileEntry[], contents: Map<string, string>): str
 async function answerWithGemini(query: string, docContext: string): Promise<{ answer: string; link: string; details: string }> {
   const apiKey = process.env['NEXT_PUBLIC_GEMINI_API_KEY'] || process.env['GEMINI_API_KEY']
   if (!apiKey) throw new Error('Missing Gemini API key')
-  const prompt = `You are a meeting assistant. The user asked in the meeting: "${query}"
+  const prompt = `You are a meeting assistant.
 
-Below are contents from documents in a shared Drive folder (each has a [File: name](link) header).
+User request:
+"${query}"
 
+Context documents:
 ${docContext || '(No document content was available.)'}
 
-Respond in JSON only, with exactly these keys (no markdown, no extra text):
-- "answer": A very short spoken reply (1-2 sentences) suitable for voice, e.g. "I found something relevant: [brief summary]. I’ll share the link in chat."
-- "link": The best matching document link (https://drive.google.com/...) or empty string if nothing matches.
-- "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
+Task:
+- Find the best matching document(s) for the user request.
+- Prefer precision over broad summaries.
+
+Output format:
+Return JSON only (no markdown, no extra text) with exactly these keys:
+- "answer": A short spoken response (1-2 sentences) suitable for voice.
+- "link": Best matching document link (https://drive.google.com/...) or empty string.
+- "details": A concise chat-ready summary including the link and why it matches.`
 
   const model = process.env['DRIVE_SEARCH_GEMINI_MODEL'] || 'gemini-2.5-flash'
   const res = await fetch(

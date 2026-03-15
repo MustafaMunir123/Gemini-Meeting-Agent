@@ -42,11 +42,39 @@ if (!apiKey) {
   process.exit(1)
 }
 
+const TOOL_INVOCATION_RULE =
+  'Only call this tool when the user explicitly says your name or a wake phrase in the same message.'
+
+const VOICE_AGENT_SYSTEM = `You are a voice assistant in a live meeting.
+
+Core behavior:
+- Keep spoken replies short and natural.
+- If in doubt, stay silent.
+
+Wake-word policy (strict):
+- Respond only when the same user message includes your name or a wake phrase ("Gemini", "Gemini Sidekick", "Hey Gemini", "Sidekick", "assistant", "bot").
+- Follow-up questions are NOT exceptions; each message must include a wake phrase again.
+- If no wake phrase is present in that message, do not respond at all.
+
+Links and chat:
+- Never read URLs out loud.
+- If you have links (Drive/Jira/search), say the details are in chat.
+- Do not repeat chat content unless the user explicitly asks.
+
+Tool usage policy:
+- For "add to chat"/"post to chat"/"write in chat", call write_to_chat immediately with the exact intended content.
+- For Drive/Jira search, give a brief spoken acknowledgment, call the tool, then mention results are in chat.
+- If the user asks for dummy/example/placeholder content, generate reasonable placeholder content and proceed with the tool call.
+- For "keep quiet", "mute yourself", or "be quiet", call set_bot_mute with muted=true.
+- For "unmute yourself" or "you can speak/listen now", call set_bot_mute with muted=false.
+- For create_jira: if a title is provided (or example title requested), create it; ask for a title only when none was provided and no example was requested.
+- For meeting summaries: use write_to_chat for chat summaries and create_meeting_minutes to save to Drive when requested.`
+
 const searchDriveTool = {
   functionDeclarations: [
     {
       name: 'search_drive',
-      description: 'Search the shared Google Drive folder for documents related to the user\'s question. Use when someone asks to check drive, find documents about a topic, or anything related to files in Drive. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
+      description: `Search the shared Google Drive folder for documents related to the user's request. Use for requests like "check Drive", "find docs about X", or "search files about Y". ${TOOL_INVOCATION_RULE} After the search, the system posts details to meeting chat; verbally tell the user to check chat.`,
       parameters: {
         type: 'object',
         properties: {
@@ -65,7 +93,7 @@ const searchJiraTool = {
   functionDeclarations: [
     {
       name: 'search_jira',
-      description: 'Search Jira tickets that match the user\'s question. Use when someone asks about Jira tickets, issues, or work items (e.g. "check Jira for X", "any tickets about Y", "what\'s the status of Z"). Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Read-only. After the search, the system automatically posts the result details to the meeting chat; tell the user the results are in chat.',
+      description: `Search Jira tickets that match the user's request. Use for requests about ticket status, related issues, or work items. Read-only. ${TOOL_INVOCATION_RULE} After the search, the system posts details to meeting chat; verbally tell the user to check chat.`,
       parameters: {
         type: 'object',
         properties: {
@@ -84,7 +112,7 @@ const writeToChatTool = {
   functionDeclarations: [
     {
       name: 'write_to_chat',
-      description: 'Write a message to the meeting chat so all participants can see it. Use whenever the user asks to: add something to chat; put text in chat; post to chat; "add to chat"; "add that to chat"; write in chat; or share something in the chat. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Include: meeting summaries or minutes, any text they want in chat, search result summaries, or your own composed message. Call this tool with the exact text to post—do not refuse. The system will send it to the meeting chat.',
+      description: `Post a message to meeting chat for all participants. Use when the user asks to add, post, write, or share content in chat (including summaries/minutes/search results). ${TOOL_INVOCATION_RULE} Send the exact message content the user intends.`,
       parameters: {
         type: 'object',
         properties: {
@@ -103,7 +131,7 @@ const createMeetingMinutesTool = {
   functionDeclarations: [
     {
       name: 'create_meeting_minutes',
-      description: 'Save meeting minutes as a file to Google Drive in the Meetings/ folder. File name is auto-generated (date + ID). Use when the user asks to save or upload meeting minutes to Drive. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. Compose summary, key points, action items from the conversation—or use reasonable placeholder content if they say "assume" or "use dummy content". Do not refuse to generate example minutes.',
+      description: `Save meeting minutes to Google Drive (Meetings folder; file name auto-generated). Use when the user asks to save/upload minutes to Drive. ${TOOL_INVOCATION_RULE} If they request dummy/example content, generate reasonable placeholder minutes and proceed.`,
       parameters: {
         type: 'object',
         properties: {
@@ -134,7 +162,7 @@ const createJiraTool = {
   functionDeclarations: [
     {
       name: 'create_jira',
-      description: 'Create a new Jira ticket (Story or Sub-task). Use when the user asks to create a Jira ticket, story, or task. Only call when the user has explicitly said your name (e.g. "Gemini") in the same message. The user can say: project key, board ID, parent ticket. If the user asks you to "use a dummy title", "assume a title", "make up an example", or "use placeholder text", generate a reasonable example (e.g. "Demo: Implement login flow") and call the tool—do not refuse. Only ask for a title when they give no hint and do not ask for dummy/example content.',
+      description: `Create a Jira ticket (Story or Sub-task). Use when the user asks to create a ticket/task/story. ${TOOL_INVOCATION_RULE} Accept optional parent key, project key, board ID, and description. If asked for dummy/example text, generate it. Ask for title only when no title hint is provided and no example is requested.`,
       parameters: {
         type: 'object',
         properties: {
@@ -160,6 +188,25 @@ const createJiraTool = {
           },
         },
         required: ['title'],
+      },
+    },
+  ],
+}
+
+const setBotMuteTool = {
+  functionDeclarations: [
+    {
+      name: 'set_bot_mute',
+      description: `Mute or unmute the bot participant microphone in Zoom. Use for requests like "keep quiet", "mute yourself", "be quiet", "unmute yourself", or "you can speak now". ${TOOL_INVOCATION_RULE}`,
+      parameters: {
+        type: 'object',
+        properties: {
+          muted: {
+            type: 'boolean',
+            description: 'true to mute the bot, false to unmute the bot.',
+          },
+        },
+        required: ['muted'],
       },
     },
   ],
@@ -258,6 +305,7 @@ export function attachVoiceWs(server, path = '/voice-ws') {
   let geminiSession = null
   let currentBotId = null
   let lastInputTranscript = ''
+  let agentMuted = true
 
   try {
     const ai = new GoogleGenAI({ apiKey })
@@ -267,35 +315,11 @@ export function attachVoiceWs(server, path = '/voice-ws') {
       inputAudioTranscription: {},
       config: {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: `You are a voice assistant in a meeting. Keep replies short.
-
-CRITICAL - Links and chat: Never read links or URLs out loud. When you have a link (e.g. from Jira, Drive, or search results), say briefly that you added it in chat or they can check the chat—do not spell out the URL. Do not repeat what you just posted to chat unless the user explicitly asks.
-
-CRITICAL - When to respond (STRICT - no exceptions):
-(1) ONLY respond when the user EXPLICITLY says your name or a direct wake phrase IN THE SAME MESSAGE. Accepted: "Gemini", "Gemini Sidekick", "Hey Gemini", "Sidekick", "assistant", "bot" — must appear in what they just said.
-(2) FOLLOW-UPS ARE NOT EXCEPTIONS: Even if they are clearly continuing the same conversation or asking a follow-up question, you must NOT respond unless they say your name (e.g. "Gemini") in that same message. "What about X?", "And the second one?", "Tell me more" — all require "Gemini" (or another wake phrase) in that message, or you stay silent.
-(3) If they did NOT say your name or wake phrase in this message, do NOT respond. Stay completely silent. No answers, no acknowledgments, no reactions — including for any follow-up or continuation.
-(4) After you finish a response, the next user message still requires them to say your name again. Never assume a message is for you without an explicit name/wake in that message.
-(5) If in doubt, stay silent.
-
-CRITICAL - Add to chat / write_to_chat: When the user says "add to chat", "put that in chat", "add that to chat", "post to chat", or "write in chat", call write_to_chat with the content they mean (or that you just spoke/search result summary) immediately. Do not refuse. For Drive and Jira search, the system already posts result details to the meeting chat; after the tool returns, say something like "I've added the results to the chat" so the user knows to look there.
-
-CRITICAL - Generating dummy/placeholder content: When the user asks you to "assume", "use a dummy", "make up", "generate example", "use placeholder", or "pretend" (e.g. "assume a description", "use a dummy title for the Jira ticket", "generate some dummy text"), do it. Provide a reasonable placeholder and call the tool or write_to_chat as needed. Do not refuse or say you cannot generate dummy content—you may invent example titles, descriptions, or text when they ask.
-
-CRITICAL - Drive searches: Say one short phrase (e.g. "Checking Drive"), call search_drive, then give a short answer and say the details are in chat.
-
-CRITICAL - Jira searches: Say one short phrase (e.g. "Checking Jira"), call search_jira, then give a short answer and say the results are in chat.
-
-CRITICAL - Creating Jira tickets: When the user asks to create a ticket:
-- If they give a title (or ask for a dummy/example title), call create_jira with that title (or a reasonable placeholder like "Demo: Example task").
-- If they say "assume a description" or "use placeholder description", pass a short example description—do not refuse.
-- Only ask "What should the title be?" when they give no title and do not ask for dummy/example content. Do not set or ask for assignee.
-
-CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a structured summary. (2) For Drive: use create_meeting_minutes. You may do both if they ask. Say you added the link in chat—do not read the URL.`,
-          tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool],
+        systemInstruction: VOICE_AGENT_SYSTEM,
+          tools: [searchDriveTool, searchJiraTool, writeToChatTool, createMeetingMinutesTool, createJiraTool, setBotMuteTool],
           functionCallingConfig: {
             mode: 'AUTO',
-            allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira'],
+            allowedFunctionNames: ['search_drive', 'search_jira', 'write_to_chat', 'create_meeting_minutes', 'create_jira', 'set_bot_mute'],
           },
         },
       callbacks: {
@@ -441,11 +465,27 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
                     clientWs.send(JSON.stringify({ trigger: 'send_chat', data: { message: result.details } }))
                   }
                   console.log('[TOOL] create_jira done')
+                } else if (fc.name === 'set_bot_mute' && geminiSession) {
+                  const muted = fc.args?.muted !== false
+                  agentMuted = muted
+                  clientWs.send(JSON.stringify({ trigger: 'bot_mute_control', data: { muted } }))
+                  geminiSession.sendToolResponse({
+                    functionResponses: [{
+                      id: fc.id,
+                      name: 'set_bot_mute',
+                      response: {
+                        success: true,
+                        muted,
+                        message: muted ? 'Bot muted.' : 'Bot unmuted.',
+                      },
+                    }],
+                  })
+                  console.log('[TOOL] set_bot_mute done:', muted ? 'muted' : 'unmuted')
                 }
               }
             }
             const parts = sc?.modelTurn?.parts
-            if (Array.isArray(parts) && shouldAllowResponse(lastInputTranscript)) {
+            if (Array.isArray(parts) && shouldAllowResponse(lastInputTranscript) && !agentMuted) {
               for (const part of parts) {
                 const inlineData = part?.inlineData ?? part?.inline_data
                 if (inlineData?.data) {
@@ -489,7 +529,13 @@ CRITICAL - Meeting summary / minutes: (1) For chat: use write_to_chat with a str
         const msg = JSON.parse(raw.toString())
         if (msg.bot_id) currentBotId = msg.bot_id
         if (msg.data?.bot_id) currentBotId = msg.data.bot_id
+        if (msg.trigger === 'agent_mute_state') {
+          agentMuted = msg.data?.muted !== false
+          console.log('[Voice WS] Agent mic state:', agentMuted ? 'muted (listening OFF)' : 'unmuted (listening ON)')
+          return
+        }
         if (msg.trigger === 'realtime_audio.mixed' && msg.data?.chunk && geminiSession) {
+          if (agentMuted) return
           const pcmBase64 = msg.data.chunk
           geminiSession.sendRealtimeInput({
             audio: { data: pcmBase64, mimeType: 'audio/pcm;rate=16000' },

@@ -158,13 +158,9 @@ wss.on('connection', (browserWs) => {
             console.error('[Bridge] 3712 = Invalid signature. Check ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET in .env (Zoom Meeting SDK app credentials). No extra spaces/newlines.')
           }
         } else if (json.type === 'RecordingPermissionChange' && json.change === 'granted') {
-          // Unmute bot (Zoom gets our virtual/silent mic, so no loopback) and enable media sending.
-          console.log('[Bridge] Recording permission granted; unmuting mic and enabling media sending.')
+          // Keep bot muted by default. We only stream to agent when bot is unmuted in Zoom.
+          console.log('[Bridge] Recording permission granted; enabling media pipeline with mute-gated listening.')
           if (currentPage) {
-            currentPage.evaluate(() => {
-              if (typeof window.turnOnMic === 'function') window.turnOnMic()
-              if (typeof window.ensureMicOn === 'function') window.ensureMicOn()
-            }).catch((err) => console.error('[Bridge] turnOnMic failed', err))
             setTimeout(() => {
               if (currentPage) {
                 currentPage.evaluate(() => {
@@ -175,6 +171,15 @@ wss.on('connection', (browserWs) => {
               }
             }, 800)
           }
+        } else if (json.type === 'AgentMuteStateChange') {
+          const muted = json.muted !== false
+          if (voiceWs?.readyState === 1) {
+            voiceWs.send(JSON.stringify({
+              trigger: 'agent_mute_state',
+              data: { muted },
+            }))
+          }
+          console.log('[Bridge] Agent mic state from browser:', muted ? 'muted' : 'unmuted')
         }
       } catch (e) {
         // ignore parse errors

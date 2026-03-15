@@ -185,16 +185,24 @@ function buildIssuesContext(issues: JiraIssue[], baseUrl: string): string {
 async function answerWithGemini(query: string, issuesContext: string): Promise<{ answer: string; link: string; details: string }> {
   const apiKey = process.env['NEXT_PUBLIC_GEMINI_API_KEY'] || process.env['GEMINI_API_KEY']
   if (!apiKey) throw new Error('Missing Gemini API key')
-  const prompt = `You are a meeting assistant. The user asked in the meeting: "${query}"
+  const prompt = `You are a meeting assistant.
 
-Below are Jira issues in KEY_NAME: KEY_VALUE format (one issue per block). Pick only the ticket(s) that match what the user asked for (one ticket if they asked for a specific one; at most 5 if they asked for several).
+User request:
+"${query}"
 
+Jira context:
 ${issuesContext || '(No issues returned.)'}
 
-Respond in JSON only, with exactly these keys (no markdown, no extra text):
-- "answer": A very short spoken reply (1-2 sentences) suitable for voice, e.g. "I found something relevant: [brief summary]. I'll share the link in chat."
-- "link": The best matching issue link or empty string if nothing matches.
-- "details": A few lines of detail to paste in meeting chat (include the link and a brief summary).`
+Task:
+- Select only tickets that directly match the user request.
+- If the request is specific, return one best match.
+- If the request is broad, return up to 5 best matches.
+
+Output format:
+Return JSON only (no markdown, no extra text) with exactly these keys:
+- "answer": A short spoken response (1-2 sentences) suitable for voice.
+- "link": Best matching Jira issue link or empty string.
+- "details": A concise chat-ready summary including the key ticket(s) and link(s).`
 
   const model = process.env['JIRA_SEARCH_GEMINI_MODEL'] || process.env['DRIVE_SEARCH_GEMINI_MODEL'] || 'gemini-2.5-flash'
   const res = await fetch(

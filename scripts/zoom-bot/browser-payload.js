@@ -145,6 +145,54 @@
     }
   }
 
+  function textOf(node) {
+    if (!node) return ''
+    return String(node.innerText || node.textContent || '').trim()
+  }
+
+  function clickButtonLike(root, targetText) {
+    if (!root) return false
+    const wanted = String(targetText || '').trim().toLowerCase()
+    if (!wanted) return false
+    const buttons = root.querySelectorAll('button, [role="button"]')
+    for (const btn of buttons) {
+      const t = textOf(btn).toLowerCase()
+      if (t === wanted || t.includes(wanted)) {
+        btn.click()
+        return true
+      }
+    }
+    return false
+  }
+
+  // Auto-accept host "Ask to Unmute" prompts so host control works for the bot participant.
+  function acceptHostUnmutePrompt() {
+    try {
+      const modals = document.querySelectorAll('div.zm-modal, div.zm-modal-legacy, [role="dialog"]')
+      for (const modal of modals) {
+        const modalText = textOf(modal).toLowerCase()
+        if (!modalText) continue
+        const isHostUnmutePrompt =
+          (modalText.includes('host') && modalText.includes('unmute')) ||
+          modalText.includes('would like you to unmute')
+        if (!isHostUnmutePrompt) continue
+        if (clickButtonLike(modal, 'Unmute')) {
+          console.log('[Bot] Auto-accepted host unmute request')
+          // Keep state in sync immediately; the periodic UI poll also corrects this if needed.
+          if (window.ws && typeof window.ws.setAgentMuted === 'function') {
+            window.ws.setAgentMuted(false, 'auto-accepted-host-request')
+          }
+          return true
+        }
+      }
+    } catch (e) {
+      console.warn('[Bot] acceptHostUnmutePrompt', e)
+    }
+    return false
+  }
+
+  window.acceptHostUnmutePrompt = acceptHostUnmutePrompt
+
   function onRecordingPermissionGranted() {
     recordingPermissionGranted = true
     if (window.ws && typeof window.ws.sendJson === 'function') {
@@ -152,28 +200,44 @@
     }
   }
 
-  // Unmute the bot's mic in Zoom UI so meeting audio can be captured.
-  function turnOnMic() {
-    const labels = ['unmute my microphone', 'Unmute microphone', 'Unmute']
-    for (const label of labels) {
-      const btn = document.querySelector(`button[aria-label="${label}"]`) || document.querySelector(`div[aria-label="${label}"]`)
-      if (btn) {
-        console.log('[Bot] Clicking unmute (aria-label: ' + label + ')')
-        btn.click()
-        return true
+  // Detect mute state from Zoom toolbar button label.
+  // When muted, button label usually contains "Unmute"; when unmuted it contains "Mute".
+  function readMicMutedStateFromUi() {
+    try {
+      const controls = document.querySelectorAll('button[aria-label], div[aria-label]')
+      for (const node of controls) {
+        const label = String(node.getAttribute('aria-label') || '').toLowerCase()
+        if (!label) continue
+        if (label.includes('unmute')) return true
+        if (label.includes('mute')) return false
+      }
+    } catch (_) { }
+    return null
+  }
+
+  function clickByAriaLabelCandidates(labels) {
+    const wanted = labels.map((l) => String(l).toLowerCase())
+    const controls = document.querySelectorAll('button[aria-label], div[aria-label]')
+    for (const node of controls) {
+      const raw = String(node.getAttribute('aria-label') || '')
+      const lower = raw.toLowerCase()
+      for (const label of wanted) {
+        if (lower === label || lower.includes(label)) {
+          node.click()
+          return true
+        }
       }
     }
-    console.warn('[Bot] Unmute button not found (tried: ' + labels.join(', ') + ')')
     return false
   }
-  window.turnOnMic = turnOnMic
-  // Retry unmute a few times in case Zoom UI isn't ready yet (e.g. right after recording starts).
-  window.ensureMicOn = function ensureMicOn() {
-    let tried = 0
-    const t = setInterval(() => {
-      if (turnOnMic() || tried >= 5) clearInterval(t)
-      tried += 1
-    }, 1500)
+
+  function setMicMuted(targetMuted) {
+    const currentMuted = readMicMutedStateFromUi()
+    if (typeof currentMuted === 'boolean' && currentMuted === targetMuted) return true
+    if (targetMuted) {
+      return clickByAriaLabelCandidates(['mute my microphone', 'Mute microphone', 'Mute'])
+    }
+    return clickByAriaLabelCandidates(['unmute my microphone', 'Unmute microphone', 'Unmute'])
   }
 
   function tryStartRecording() {
@@ -251,9 +315,18 @@
       this.ws = new WebSocket('ws://localhost:' + port)
       this.ws.binaryType = 'arraybuffer'
       this.mediaSendingEnabled = false
-      this.ws.onopen = () => console.log('[Bot] WebSocket connected to bridge')
+      this.agentMuted = true // safe default: do not stream until explicitly unmuted
+      this._mutePoll = null
+      this.ws.onopen = () => {
+        console.log('[Bot] WebSocket connected to bridge')
+        this.sendJson({ type: 'AgentMuteStateChange', muted: this.agentMuted })
+      }
       this.ws.onerror = (e) => console.error('[Bot] WebSocket error', e)
-      this.ws.onclose = () => console.log('[Bot] WebSocket closed')
+      this.ws.onclose = () => {
+        if (this._mutePoll) clearInterval(this._mutePoll)
+        this._mutePoll = null
+        console.log('[Bot] WebSocket closed')
+      }
       this.ws.onmessage = (event) => {
         let raw
         if (typeof event.data === 'string') {
@@ -267,6 +340,14 @@
           const msg = JSON.parse(raw)
           if (msg.trigger === 'realtime_audio.bot_output' && msg.data?.chunk && window.virtualMic) {
             window.virtualMic.playPCM(msg.data.chunk, msg.data.sample_rate || 24000)
+          }
+          if (msg.trigger === 'bot_mute_control') {
+            const muted = msg.data?.muted !== false
+            const ok = setMicMuted(muted)
+            this.setAgentMuted(muted, ok ? 'remote-control' : 'remote-control-no-button')
+            if (!ok) {
+              console.warn('[Bot] bot_mute_control received but matching mic button was not found')
+            }
           }
           if (msg.trigger === 'send_chat' && msg.data?.message != null) {
             if (typeof ZoomMtg === 'undefined' || typeof ZoomMtg.sendChat !== 'function') {
@@ -289,6 +370,30 @@
         } catch (_) { }
       }
     }
+    setAgentMuted(muted, reason) {
+      if (typeof muted !== 'boolean') return
+      if (this.agentMuted === muted) return
+      this.agentMuted = muted
+      console.log('[Bot] Agent mic state:', muted ? 'muted (listening OFF)' : 'unmuted (listening ON)', reason ? '- ' + reason : '')
+      this.sendJson({ type: 'AgentMuteStateChange', muted })
+    }
+    startMuteStatePolling() {
+      if (this._mutePoll) return
+      this._mutePoll = setInterval(() => {
+        acceptHostUnmutePrompt()
+        const muted = readMicMutedStateFromUi()
+        if (typeof muted === 'boolean') {
+          this.setAgentMuted(muted, 'ui-poll')
+        }
+      }, 1200)
+      acceptHostUnmutePrompt()
+      const initialMuted = readMicMutedStateFromUi()
+      if (typeof initialMuted === 'boolean') {
+        this.setAgentMuted(initialMuted, 'initial')
+      } else {
+        this.sendJson({ type: 'AgentMuteStateChange', muted: true })
+      }
+    }
     sendJson(data) {
       if (this.ws.readyState !== WebSocket.OPEN) return
       try {
@@ -303,7 +408,7 @@
       }
     }
     sendMixedAudio(timestamp, audioData) {
-      if (this.ws.readyState !== WebSocket.OPEN || !this.mediaSendingEnabled) return
+      if (this.ws.readyState !== WebSocket.OPEN || !this.mediaSendingEnabled || this.agentMuted) return
       try {
         const message = new Uint8Array(4 + audioData.buffer.byteLength)
         new DataView(message.buffer).setInt32(0, WebSocketClient.MESSAGE_TYPES.AUDIO, true)
@@ -316,6 +421,7 @@
     async enableMediaSending() {
       ensureWs()
       this.mediaSendingEnabled = true
+      this.startMuteStatePolling()
       await window.styleManager.start()
       const checkInterval = setInterval(() => {
         if (window.styleManager._captureStarted) {
