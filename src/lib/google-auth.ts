@@ -1,6 +1,6 @@
 /**
  * Google OAuth for Drive is fully handled in this project (zoom-agent).
- * Tokens are stored in .data/google-tokens.json; Attendee is not involved.
+ * Tokens are stored in .data/google-tokens.json.
  */
 import { google } from 'googleapis'
 import { readFile, writeFile, mkdir } from 'fs/promises'

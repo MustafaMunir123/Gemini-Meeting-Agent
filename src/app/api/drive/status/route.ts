@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { loadTokens } from '@/lib/google-auth'
 
 /**
- * Drive OAuth is fully handled in this project (not Attendee).
+ * Drive OAuth is fully handled in this project.
  * Tokens are stored in .data/google-tokens.json and used by /api/drive/search.
  */
 export async function GET() {

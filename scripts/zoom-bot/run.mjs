@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Minimal Zoom bot runner: join a Zoom meeting and stream meeting audio to the voice server (3001).
- * No Attendee, Django, Celery, Redis, or Postgres.
+ * Standalone: no external bot service required.
  *
  * Usage:
  *   MEETING_URL="https://zoom.us/j/MEETING_ID?pwd=PASSWORD" VOICE_WS_URL="wss://your-ngrok.ngrok.io" node scripts/zoom-bot/run.mjs
@@ -47,7 +47,7 @@ if (!parsedMeetingNumber) {
   process.exit(1)
 }
 
-/** Build Zoom Meeting SDK JWT (same payload as Attendee zoom_meeting_sdk_signature). */
+/** Build Zoom Meeting SDK JWT for join. */
 function buildSignature() {
   const iat = Math.floor(Date.now() / 1000) - 60
   const exp = iat + 2 * 60 * 60
@@ -101,7 +101,7 @@ function connectToVoiceServer() {
   })
 }
 
-// Float32 [-1,1] -> PCM 16-bit (match Attendee: multiply by 32768, clamp to int16)
+// Float32 [-1,1] -> PCM 16-bit (multiply by 32768, clamp to int16)
 function float32ToPcm16(float32) {
   const pcm16 = new Int16Array(float32.length)
   for (let i = 0; i < float32.length; i++) {
@@ -155,10 +155,10 @@ wss.on('connection', (browserWs) => {
         if (json.type === 'JoinError') {
           console.error('[Bridge] Zoom join failed:', json.error || json)
           if (json.raw && (json.raw.errorCode === 3712 || (json.error && String(json.error).includes('Invalid signature')))) {
-            console.error('[Bridge] 3712 = Invalid signature. Use the SAME Zoom Meeting SDK credentials (ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET) as in Attendee. Copy them from Attendee\'s env/docker into this app\'s .env. No extra spaces/newlines.')
+            console.error('[Bridge] 3712 = Invalid signature. Check ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET in .env (Zoom Meeting SDK app credentials). No extra spaces/newlines.')
           }
         } else if (json.type === 'RecordingPermissionChange' && json.change === 'granted') {
-          // Match Attendee: unmute bot (Zoom gets our virtual/silent mic, so no loopback) and enable media sending.
+          // Unmute bot (Zoom gets our virtual/silent mic, so no loopback) and enable media sending.
           console.log('[Bridge] Recording permission granted; unmuting mic and enabling media sending.')
           if (currentPage) {
             currentPage.evaluate(() => {
@@ -238,7 +238,7 @@ async function main() {
   })
   const page = await context.newPage()
 
-  // Generate signature at join time (same credentials as Attendee; must be Meeting SDK app SDK Key + Secret)
+  // Generate signature at join time (Meeting SDK app SDK Key + Secret)
   const signature = buildSignature()
   // For meetings outside your app's account (Zoom requirement from March 2026), set ZOOM_ZAK_TOKEN or ZOOM_OBF_TOKEN. See https://developers.zoom.us/docs/meeting-sdk/obf-faq/
   const zakToken = process.env.ZOOM_ZAK_TOKEN?.trim() || ''
@@ -267,7 +267,7 @@ async function main() {
       console.error('[Bot page]', text)
     }
   })
-  // Inject credentials before page load (same as Attendee: data is there before any script runs)
+  // Inject credentials before page load (data is there before any script runs)
   await page.addInitScript((data) => {
     window.zoomInitialData = data.zoom
     window.initialData = data.initial
@@ -291,7 +291,7 @@ async function main() {
   } else {
     console.log('[Bot] In meeting.')
   }
-  // Match Attendee: ask for recording permission so Zoom shows the prompt; enable media only after permission granted.
+  // Ask for recording permission so Zoom shows the prompt; enable media only after permission granted.
   console.log('[Bot] Asking for recording permission (user must accept in Zoom)...')
   await page.evaluate(() => {
     if (typeof window.askForMediaCapturePermission === 'function') {

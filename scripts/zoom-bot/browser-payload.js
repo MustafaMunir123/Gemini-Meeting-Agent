@@ -2,7 +2,7 @@
  * Browser payload: Zoom join + mixed audio capture + WebSocket to bridge.
  * Expects window.zoomInitialData and window.initialData (injected by run.mjs before joinMeeting()).
  *
- * Like Attendee: we intercept getUserMedia and give Zoom a virtual mic (silent until we play agent PCM).
+ * We intercept getUserMedia and give Zoom a virtual mic (silent until we play agent PCM).
  * Agent reply audio is received from the bridge and played into this mic so the user hears it in Zoom.
  */
 (function () {
@@ -152,7 +152,7 @@
     }
   }
 
-  // Unmute the bot's mic in Zoom UI so meeting audio can be captured. Same as Attendee zoom_web_chromedriver_payload.js
+  // Unmute the bot's mic in Zoom UI so meeting audio can be captured.
   function turnOnMic() {
     const labels = ['unmute my microphone', 'Unmute microphone', 'Unmute']
     for (const label of labels) {
@@ -194,7 +194,7 @@
 
   function askForMediaCapturePermission() {
     madeInitialRequestForRecordingPermission = true
-    // Wait 1s before asking (Zoom SDK timing). See Attendee zoom_web_chromedriver_page.js
+    // Wait 1s before asking (Zoom SDK timing).
     setTimeout(() => {
       if (typeof ZoomMtg === 'undefined' || !ZoomMtg.mediaCapture) {
         console.warn('[Bot] ZoomMtg.mediaCapture not available')

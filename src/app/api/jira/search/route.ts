@@ -2,13 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import https from 'https'
 import { URL } from 'url'
 
-<<<<<<< Updated upstream
-const getJiraConfig = () => ({
-  baseUrl: (process.env['JIRA_BASE_URL'] ?? '').replace(/\/$/, ''),
-  email: process.env['JIRA_EMAIL'],
-  apiKey: process.env['JIRA_API_KEY'],
-})
-=======
 // When set (e.g. JIRA_INSECURE_TLS=1), Jira API requests skip TLS cert verification (fixes "unable to get local issuer certificate" on some systems).
 const jiraInsecureTls =
   process.env['JIRA_INSECURE_TLS'] === '1' ||
@@ -67,7 +60,6 @@ function getJiraConfig() {
   const apiKey = process.env['JIRA_API_KEY']
   return { baseUrl: base, email: email, apiKey: apiKey }
 }
->>>>>>> Stashed changes
 
 type JiraIssue = {
   key: string
@@ -81,19 +73,6 @@ type JiraIssue = {
   parentAssignee?: string
 }
 
-<<<<<<< Updated upstream
-function getAuthHeader(cfg: ReturnType<typeof getJiraConfig>): string {
-  if (!cfg.apiKey) throw new Error('Missing JIRA_API_KEY')
-  if (cfg.email) {
-    const encoded = Buffer.from(`${cfg.email}:${cfg.apiKey}`).toString('base64')
-    return `Basic ${encoded}`
-  }
-  return `Bearer ${cfg.apiKey}`
-}
-
-async function fetchJiraIssues(cfg: ReturnType<typeof getJiraConfig>, jql: string, maxResults: number): Promise<JiraIssue[]> {
-  if (!cfg.baseUrl) throw new Error('Missing JIRA_BASE_URL')
-=======
 function getAuthHeader(config: { apiKey: string | undefined; email: string | undefined }): string {
   if (!config.apiKey) throw new Error('Missing JIRA_API_KEY')
   if (config.email) {
@@ -109,25 +88,16 @@ async function fetchJiraIssues(
   maxResults: number
 ): Promise<JiraIssue[]> {
   if (!config.baseUrl) throw new Error('Missing JIRA_BASE_URL')
->>>>>>> Stashed changes
   const params = new URLSearchParams({
     jql,
     maxResults: String(maxResults),
     fields: 'summary,status,issuetype,labels,assignee,parent',
   })
-<<<<<<< Updated upstream
-  const res = await fetch(`${cfg.baseUrl}/rest/api/3/search/jql?${params}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: getAuthHeader(cfg),
-=======
   const res = await jiraFetch(`${config.baseUrl}/rest/api/3/search/jql?${params}`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       Authorization: getAuthHeader(config),
->>>>>>> Stashed changes
     },
   })
   if (!res.ok) {
@@ -164,14 +134,9 @@ async function fetchJiraIssues(
   const parentMeta: Record<string, { summary?: string; assignee?: string }> = {}
   for (const pkey of parentKeys) {
     try {
-<<<<<<< Updated upstream
-      const pres = await fetch(`${cfg.baseUrl}/rest/api/3/issue/${pkey}?fields=summary,assignee`, {
-        headers: { Accept: 'application/json', Authorization: getAuthHeader(cfg) },
-=======
       const pres = await jiraFetch(`${config.baseUrl}/rest/api/3/issue/${pkey}?fields=summary,assignee`, {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: getAuthHeader(config) },
->>>>>>> Stashed changes
       })
       if (pres.ok) {
         const pdata = (await pres.json()) as { fields?: { summary?: string; assignee?: { displayName?: string } } }
@@ -269,10 +234,6 @@ function toErrorMessage(e: unknown): string {
 }
 
 export async function POST(request: NextRequest) {
-<<<<<<< Updated upstream
-  const cfg = getJiraConfig()
-=======
->>>>>>> Stashed changes
   const secret = process.env['JIRA_SEARCH_SECRET']
   if (secret) {
     const header = request.headers.get('x-jira-search-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
@@ -281,17 +242,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-<<<<<<< Updated upstream
-  if (!cfg.baseUrl || !cfg.apiKey) {
-    return NextResponse.json({ error: 'JIRA_BASE_URL and JIRA_API_KEY (and JIRA_EMAIL for Cloud) are required' }, { status: 500 })
-=======
   const config = getJiraConfig()
   if (!config.baseUrl || !config.apiKey) {
     return NextResponse.json(
       { error: 'JIRA_BASE_URL and JIRA_API_KEY (and JIRA_EMAIL for Cloud) are required. Check env vars are set at runtime.' },
       { status: 500 }
     )
->>>>>>> Stashed changes
   }
 
   let body: { query?: string; jql?: string }
@@ -305,20 +261,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 })
   }
 
-<<<<<<< Updated upstream
-  const defaultJql = (process.env['JIRA_DEFAULT_JQL'] ?? '').trim() || 'updated >= -90d ORDER BY updated DESC'
-=======
   const defaultJql = (process.env['JIRA_DEFAULT_JQL'] ?? '')?.trim() || 'updated >= -90d ORDER BY updated DESC'
->>>>>>> Stashed changes
   const jql = typeof body.jql === 'string' && body.jql.trim() ? body.jql.trim() : defaultJql
   const maxResults = 50
 
   try {
-<<<<<<< Updated upstream
-    const issues = await fetchJiraIssues(cfg, jql, maxResults)
-    const issuesContext = buildIssuesContext(issues, cfg.baseUrl)
-    const result = await answerWithGemini(query, issuesContext)
-=======
     let issues: JiraIssue[]
     try {
       issues = await fetchJiraIssues(config, jql, maxResults)
@@ -332,7 +279,6 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       throw new Error(`Gemini answer failed. ${toErrorMessage(e)}`)
     }
->>>>>>> Stashed changes
     // Use LLM's details only (never fall back to full issue list—we want only the asked-for ticket(s))
     const details =
       typeof result.details === 'string' && result.details.trim()
