@@ -2,6 +2,9 @@
 
 Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a meeting; it streams audio to the agent and plays replies back.
 
+## Proof of Deployment
+https://github.com/user-attachments/assets/5435ebfc-bb6a-4caa-8679-53a9fe7043f6
+
 ## Architecture
 
 [![Architecture](docs/architecture.png)](https://youtu.be/6GTauXJC1Vo?si=r476G_StG3HtN1_g)
@@ -14,7 +17,7 @@ The Gemini Live agent joins the meeting, streams audio over WebSocket, and uses 
 
 1. Launch your own private instance of the app to Google Cloud in just one click. No local setup required.
 
-   [![Run on Google Cloud](./run-on-google-cloud.png)](https://console.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/MustafaMunir123/Gemini-Meeting-Agent&cloudshell_script=scripts/one-click-deploy.sh)
+   [![Run on Google Cloud](./run-on-google-cloud.png)](https://console.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/MustafaMunir123/Gemini-Meeting-Agent&cloudshell_print=deploy-instructions.txt)
 2. In [Cloud Run](https://console.cloud.google.com/run) → your service → **Edit & deploy** → **Variables & secrets**, add each variable by **name** and **value** (the container does not use a `.env` file; only these service env vars are used):
 
 ```
