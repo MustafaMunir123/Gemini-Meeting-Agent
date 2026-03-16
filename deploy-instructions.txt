@@ -1,0 +1,3 @@
+Run the following command:
+
+bash scripts/one-click-deploy.sh
