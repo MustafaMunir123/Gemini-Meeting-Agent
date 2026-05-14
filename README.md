@@ -2,8 +2,6 @@
 
 Helper agent in meetings powered by **Gemini Live API**. Launch a bot into a meeting; it streams audio to the agent and plays replies back.
 
-## Proof of Deployment
-https://github.com/user-attachments/assets/5435ebfc-bb6a-4caa-8679-53a9fe7043f6
 
 ## Architecture
 
